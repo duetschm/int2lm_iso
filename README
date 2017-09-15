@@ -1,0 +1,156 @@
+Int2lm Official C2SM Version
+=================================
+
+Index
+
+ 1. Getting started at CSCS quickly
+ 2. Introduction
+ 3. How to compile?
+ 4. How to modify/add source code?
+ 5. How to link against an additional library?
+ 6. How to compare two executables?
+
+
+1. Getting started at CSCS rapidly
+
+ [log on to daint.cscs.ch]
+ > module swap PrgEnv-cray PrgEnv-pgi
+ > module load cray-netcdf
+ > (check that ddt is not loaded)
+ > ln -s Options.daint.pgi Options
+ > make clean
+ > make
+ [executable named "int2lm" is generated]
+ 
+OR
+
+ [log on to rosa.cscs.ch]
+> module load PrgEnv-pgi
+ > module load cray-netcdf
+ > ln -s Options.rosa.pgi Options
+ > make clean
+ > make
+ [executable named "int2lm" is generated]
+
+
+2. Introduction
+
+This README describes the official C2SM release of the code and
+some basic modifications you might want to make. The base directory
+contains the following things:
+
+ROOT
+ |-- bin                contains utilities (e.g. shell scripts)
+ |   |-- compile.sh     script to automatically compile debug/optimized
+ |   |                  executable
+ |   |-- gen_info.sh    script to generate compiler/platform information
+ |   |-- sfmakedepend   script to generate dependencies
+ |-- doc                contains documentation
+ |   |-- misc.global    change log of versions
+ |   |-- README         this document
+ |   |-- misc.c2sm      change log of local modifications for C2SM version
+ |-- Makefile           description file used by make to build executable
+ |-- obj                object (.o and .oo) and module (.mod) files
+ |-- Objfiles           list of what needs to be compiled
+ |-- Options.xx.xx      platform and compiler dependent compilation options/libraries
+ |-- src                source code (.f90 files)
+
+The compile script is an aid for generating production versions of code
+which has been debugged and tested. It will generate both a debugging
+and an optimized version of the executable and save the compile log with a
+date attached for later reference.
+
+
+3. How to compile?
+
+First you need to create an Options file for your target architecture. There
+are several ready made Options files for different compilers which you can
+use as a template. For example...
+
+ln -s Options.rosa.pgi Options
+
+The basic syntax for compiling uses the make mechanism and is of the form
+"make target" where target specifies the type of executable you want to
+build. If you want to compile faster using several processors you can use
+the "make -j 6 target" syntax which would compile using 6 processors on the
+machine you are working on. The following target exists:
+
+make            default target (paropt)
+make paropt     make an optimized parallel executable (not for debugging!)
+make pardebug   make a parallel executable for debugging
+make seqopt     make an optimized sequential executable
+make seqdebug   make a sequential executable for debugging
+
+If you want to have more verbose output of what is happening during the build
+you can use the VERBOSE=1 options. For example, type "make VERBOSE=1 paropt".
+
+Before you switch target, you must always issue a "make clean" in order to
+remove any existing object/module files that have already been compiled! For
+developing/debugging code it is highly recommended to use the debugging
+targets, as they compile very quickly (25s on dole using -j 6) and catch
+several runtime errors (such as array bounds checking). For production runs
+use the optimized executable. Make sure you check the correctness of the
+results also of the optimized executable before production. (Building an
+optimized executable takes ~10 minutes on dole using -j 6.)
+
+
+4. How to modify/add source code
+
+To modify source code simply edit the source file in the src directory using
+your favorite text editor. Then clean away old object/module files in the obj
+directory using "make clean". To build an executable with debugging options and
+without optimization type "make pardebug". Make a simple test run and verify
+the results. If you find a bug, modify the source file once more and type
+"make pardebug". Note that if you compile the same target, you don't need to use
+"make clean" in between compilations and the make utility will determine auto-
+matically which files need recompilation.
+
+If you want to add additional source code, the strategy is fundamentally the
+same as described above. Once you have added the additional source code files
+(e.g. src_new.f90 in the src directory) you will need to add a new entry in
+the Objfiles (e.g. src_new.o) in order to tell the make utility to compile
+your source code.
+
+NOTE: The Makefile is configured in such a way, that dependencies between
+Fortran modules are automatically recognized. If you change a module, all
+source code depending on the module will be recompiled. You need not keep
+track of this information in an external file.
+
+NOTE: The compiler is configured to preprocess all source files disregarding
+of their extension. Do not use the .F90 extension! The make utility will not
+handle your source file correctly and version control systems don't like files
+being renamed.
+
+
+5. How to link against an additional library?
+
+If your code uses an additional library, you can simply add a corresponding
+entry in the "INC := " and "LIB := " lines of the Options.ela file. This should
+work straightforwardly and be the preferred solution in most cases.
+
+If you want your library to be switchable, you can follow the examples in the
+Makefile for the grib1 or NetCDF library and modify the Options.ela file
+accordingly.
+
+
+6. How to compare two executables?
+
+The compile executable is a snapshot of the source code as it was at the time
+of compilation, but there is nothing to keep the user from modifying the
+source code later on. This requires considerable care from the user and it is
+strongly recommended to use a version control system for keeping track of the
+changes you have made to your code. If you check in your code before compilation
+you can tag your executables with the revision number of the current code (e.g.
+int2lm_R668) which will enable you to reconstruct the source code used for
+compilation at any later time.
+
+Nevertheless, it might sometimes be necessary to compare two existing binaries
+and find out wether they are the same. There are several more or less satisfying
+options to do this. First, you can simply compare the executables using the
+diff command. If exactly the same executables are used, the diff command should
+give a zero result. Second, at the beginning of each simulation the
+executable writes some crucial information about the compiler used, the host
+compile upon, the code version, as well as the checksum of all code present in
+the src directory at the time of compilation. This information can be used to
+compare two executables.
+

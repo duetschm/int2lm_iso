@@ -1,0 +1,45 @@
+# compiler
+F90      := ifort
+F90_MPI  := ifort
+LD       := ifort
+
+# standard flags, libraries and includes
+FFLAGS   := -O2 -fpp -ip -heap-arrays -g -traceback
+INC      := 
+LIB      := 
+
+# optimized flags, libraries and includes
+FOPT     := 
+FOPT2    := 
+FOPT3    := 
+OPTL     := 
+OPTI     := 
+
+# debugging flags, libraries and includes
+FDBG     :=
+DBGL     :=
+DBGI     := 
+
+# MPI library
+MPIL     := -L/opt/parastation/mpi2-intel/lib \
+            -Wl,-rpath,/opt/parastation/mpi2-intel/lib -lmpichf90 -lmpich \
+            -L/opt/parastation/lib64 -Wl,-rpath,/opt/parastation/lib64 \
+            -lpscom  -lrt
+MPII     := -I/opt/parastation/mpi2-intel/include
+
+# Database library
+DBL      :=
+DBI      :=
+
+# Grib1 library
+GRIBDWDL := -L/home2/stephan/lib -lgrib1
+GRIBDWDI := 
+
+# Grib API
+#GRIBAPIL := -L/home2/stephan/lib -lgrib_api_f90 -lgrib_api
+#GRIBAPII := -I/home2/stephan/include
+
+# NetCDF library
+NETCDFL  := -L/home2/stephan/lib -lnetcdf
+NETCDFI  := -I/home2/stephan/include
+

@@ -1,0 +1,2747 @@
+
+-------------------------------------------------------------------------------
+
+
+2.00:                                              (01.11.2013)
+=====
+
+INT2LM 2.0 has been created on November 1st, 2013. It is identical to version
+INT2LM 1.24.
+
+
+(Ulrich Schaettler, DWD)
+
+-------------------------------------------------------------------------------
+
+1.24:                                              (31.10.2013)
+=====
+
+These are the last technical changes before the next big release:
+
+
+Bug fix in src_lm_output.f90:
+In init_lm_output, only the height based vertical coordinate parameters were
+written to pv_out, even for ivctype=1. Dependend on ivctype, either the pressure
+based or the height based vertical coordinate parameters must be set.
+
+Initialized some "used before defined" variables (detected by the Cray compiler)
+in src_read_ext.f90, src_read_coarse_grid.f90
+
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.23:                                              (02.10.2013)
+=====
+
+Bug fix for array of vertical coordinate parameters pv_in, pv_out:
+------------------------------------------------------------------
+
+pv_in, pv_out were defined as single precision values, but were treated in the
+INT2LM as double precision fields, especially in the communication. This caused
+severe memory corruption in several applications. Now they are defined as
+double precision fields in data_int2lm_io.f90, io_utilities.f90 and
+src_lm_output.f90
+
+
+KIND parameters for grib_api:
+-----------------------------
+
+The integer kindOfSize has lately been implemented as an 8-byte Integer at ECMWF 
+in grib-api 1.11.0. An integer of this KIND is taken from subroutine
+grib_read_from_file (which gives the length of the message in bytes) in
+read_gribapi and passed to the MPI_SEND routine. But MPI_SEND does not interpret
+this integer correctly (not in the "INCLUDE mpif.h" variant, but also not in
+the "USE mpi" variant, although it compiles without error.
+
+Therefore the value of the length of the message is transferred to a 4-byte
+integer before it is passed to MPI_SEND.
+
+The same problem occured in SR write_gribapi.
+
+
+Using of Namelist variable: l_ke_in_gds
+---------------------------------------
+
+The default for this namelist variable has been changed to:  .TRUE.
+Therefore all GRIB1 vertical coordinate parameters are now coded in the new way:
+
+  pv( 1)       = ivctype
+  pv( 2)       = ke
+  pv( 3)       = p0sl
+  pv( 4)       = t0sl
+  pv( 5)       = dt0lp
+  pv( 6)       = vcflat
+  pv( 7:6+ke1) = vcoords(1:ke1)
+
+  more parameters depending on type of reference atmosphere, vertical coordinate type.
+
+If this should not be done, l_ke_in_gds has to be set to .FALSE. explicitely.
+
+
+Using of names: vcoord, refatm:
+-------------------------------
+
+In version 1.22, new types were used to hold all vertical coordinate parameters and also
+parameters of the reference atmosphere. While names with suffixes _in and _out were used
+then in INT2LM and also in the COSMO-Model, it was decided to use _in in the INT2LM for
+the incoming fields from coarse grid models and the names without suffix for the
+corresponding variables of the fine COSMO grid and also throughout the whole COSMO-Model.
+
+
+Technical Changes and further Bug Fixes:
+----------------------------------------
+
+- data_grid_lm.f90
+  Remove definition of khmax (is in vgrid_refatm_utils now)
+
+- data_int2lm_io.f90
+  Define pv_in as double precision, because it is treated as such in the INT2LM
+
+- external_data.f90
+  Check hsurf and hhl-read only up to epsilon: even with IEEE 64-bit packing,
+  the values are not exactly the same on different machines (e.g. NEC, IBM)
+
+- src_coarse_interpol.f90
+  IFS soiltyp has 7 soil types, not 6 (modified by Lucio Torrisi)
+
+- src_namelists.f90
+   => Set values of press_level_d which are not used to 0
+
+   => The check, whether a new set of vertical coordinate parameters is used, has
+      been moved to subroutine input_data, when the value for ylm_form_write is
+      known. If a new set is used, and 'api2' is chosen, the program aborts,
+      because this situation is not accounted for at the moment.
+      The new set of parameters has to be coded into the source code (still).
+
+- src_read_coarse_grid.f90
+   => added REFSTF when reading vertical coordinate parameters with grb1
+
+   => added settings of vcoord_in-values for ivctype=1/2/3
+
+   => In subroutine read_nc_gdefs, the vertical coordinate and reference atmosphere
+      parameters must only be set for the first time, this subroutine is called,
+      because only then they are read from the ncdf-file.
+
+   => The reference atmosphere for the input grid and the interpolated grid
+      need only be computed for the first call of this subroutine
+
+- src_vert_inter_lm:
+  The variable kloc (for specifying the boundary layer) has been initialized
+  with 0.
+
+- vgrid_refatm_utils.f90
+  Increased khmax to 230
+
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.22:                                              (01.07.2013)
+=====
+
+Implementation of GRIB2 (with grib_api)
+---------------------------------------
+(by Uli Schaettler)
+
+This version of INT2LM now is able to write GRIB2 data with the grib_api from 
+ECMWF. Note that at least version 1.11.0 from grib_api is necessary to compile
+INT2LM with grib_api, because of the use of the new generalVertical coordinate.
+
+The usage of GRIB2, the new general vertical coordinate (and most important 
+the local use sections of GRIB2) will be documented on the COSMO-Web Page:
+
+ http://www.cosmo-model.org/content/model/documentation/grib/default.htm
+
+This page is still under construction. We hope to extend it until 
+end of July 2013 significantly.
+
+
+
+Implemented new GRIB2 leveltype "generalVertical" and "generalVerticalLayer"
+----------------------------------------------------------------------------
+
+The main difference to the other vertical coordinate types  'hybrid' and
+'hybridLayer' is, that now there is no computational algorithm how the 
+vertical layers are constructed, but a full 3D file (called a HHL-file for the
+height of half levels in COSMO) is provided, that has to be processed together
+with other 3D variables defined on these levels. 
+
+With this new vertical level type, also some new keys were introduced for 
+the WMO GRIB2 standard, namely:
+
+  => nlev   (alias for numberOfVerticalCoordinateValues) 
+     ! nlev is ke+1 in COSMO, because the number of half levels are specified here
+
+  => numberOfVGridUsed 
+     ! represents the vertical coordinate type ivctype
+
+  => uuidOfVGrid 
+     ! is a unique identifier for a special HHL-file
+
+HHL-files can only be created by the INT2LM, but INT2LM can also process an
+existing HHL-file. This behaviour can be controlled by the new Namelist 
+variable (in /LMGRID/):
+
+  lnewVGrid:  the default is .FALSE., which means that no new file is created
+
+
+These keys replace the vertical coordinate parameters, which are present in 
+data with level types 'hybrid' or 'hybridLayer'.
+
+The new general vertical coordinate and its usage in the COSMO-Model system will
+be documented and explained in detail on the COSMO web page: cosmo-model.org
+(coming soon!)
+
+
+There were some changes to the INT2LM to implement the new vertical coordinate:
+
+- Introduced a new module vgrid_refatm_utils.f90, which contains data structures,
+  variables and routines necessary for dealing with the vertical grid and the
+  reference atmosphere.
+
+    new data structures:  
+       => refatm_type:  which contains variables for the reference atmosphere
+       => vcoord_type:  which contains variables for the vertical grid
+  
+  This module now also contains data and routines, which have been in other
+  modules before:
+    - routines to compute the different reference atmospheres
+       (from meteo_utilities)
+
+    - data for the vertical coordinate parameters
+       (from data_grid_lm and data_grid_in, resp.)
+
+  The module vgrid_refatm_utils also contains subroutines to create a UUID and 
+  to compare different UUIDs.
+
+
+  NOTE: In connection with these technical changes we noticed a bug in src_vert_inter_lm:
+    To compute the boundary layer height, the vertical coordinate parameters akh_in, bkh_in
+    from the input data were used. But in case of COSMO_EU for example, which has ivctype=2
+    (a height based coordinate), akh_in and bkh_in contain height, not pressure. 
+    Now, always the pressure coordinates vcoord_in%sigm_coord are used.
+
+    CHANGES OF RESULTS:
+    This bug fix changes the results of applications with llm2lm and COSMO input data
+    with a height based vertical coordinate (ivctype_in = 1)!!!
+
+- Implemented possibility to write HHL in a single file with full precision
+  (but only when writing GRIB2)
+  For that, 2 new Namelist switches have been implemented in group /DATA/:
+       => ylm_hhl: file name for the HHL-file for the COSMO grid
+                   (this file is written in the directory ylm_cat, where
+                    the initial and boundary fields for the COSMO-Model are written)
+
+       => yin_hhl: file name for the input HHL-file (when processing data 
+                   from the COSMO-Model). This file is taken from the directory
+                   yin_cat as the other COSMO data.
+
+  In case of writing GRIB2, the subroutine org_lm_output is called during the 
+  initialization of INT2LM with a variable list just containing 'HHL' to write 
+  the COSMO HHL file.
+
+
+- Implemented a new module src_read_hhl.f90, which reads the HHL-files for the 
+  COSMO-grid and also for a COSMO-input grid, if necessary.
+
+
+Other adaptations to GRIB2:
+---------------------------
+(by Uli Schaettler)
+
+in src_lm_output.f90:
+
+ - endStep: must not be set for ipds(19)=0 (stepType=instant), because it also
+            resets the startStep to 0
+
+
+Bug Fixes:
+ - The upper soil level was not set for T_SO and api2, because it was only
+   checked for grb1 and api1
+
+
+Setting of SecondFixedSurface for typeOfLevel='surface'
+
+ - HSURF: additional settings necessary for GRIB2:
+     typeOfSecondFixedSurface        = 101
+     scaleFactorOfSecondFixedSurface =   0
+     scaledValueOfSecondFixedSurface =   0
+
+
+
+Some more organizational data structures:
+-----------------------------------------
+
+Introduced arrays to convert some GRIB1 codings to grib_api strings
+ - GRIB1 level types:                 ylevltypes_in, ylevltypes_out
+ - GRIB1 time range indicators:       ysteptypes
+ - GRIB2 scaleFactors / scaledValues: scalefactors
+
+   (some of them up to now only defined in data_int2lm_io; 
+    they are used in the COSMO-Model: see COSMO-Model 4.28)
+
+
+
+Multi-layer treatment of IFS soil:
+----------------------------------
+(by Davide Cesari)
+
+With the current interpolation scheme for the IFS soil model, if you 
+use l_multi_layer_lm=.TRUE. and yinput_model='IFS', the soil is first 
+interpolated to the 2-layer soil model levels, and successively 
+interpolated (actually extrapolated) to the multi-layer levels, 
+so input temperature below the COSMO T_CL level gets lost and deep 
+temperature is unrealistic. With this direct interpolation all the input 
+layers influence the output, so higher precision and less extrapolation 
+is obtained. 
+
+The new interpolation is activated when 
+   => yinput_model='IFS' and 
+   => l_multi_layer_in=.TRUE. (and of course l_multi_layer_lm=.TRUE.) 
+
+which was a forbidden combination before. When l_multi_layer_in=.FALSE. 
+the old behaviour is retained, so the "do not touch legacy behaviour" 
+principle for CLM is respected (I verified that the results are bit-equal 
+with the unmodified int2lm 1.21).
+
+The technique used is linear interpolation of soil temperature, assuming 
+it is valid in the mid point of the layers, and a linear conservative 
+interpolation of volumetric soil moisture. Extrapolation below is done 
+keeping values constant.
+
+To avoid too many if's and branches in src_2d_fields.f90, l_smi=.TRUE. 
+is forced when IFS and l_multi_layer_in=.TRUE., because l_smi code uses 
+a different scaling of soil moisture which allows vertical interpolation, 
+while the default setting does not, for this reason, although 
+src_read_coarse_grid.f90 would allow interpolation with l_smi=.FALSE., 
+this is forbidden in src_namelists.f90 because the results are wrong. 
+
+Also the l_use_t_skin=.FALSE. option is not implemented. Plese tell 
+me whether you think it is important to support also l_smi=.FALSE. and 
+l_use_t_skin=.FALSE. at the cost of complicating the code a little bit, 
+or not.
+
+The modifications are:
+  - src_gribtabs.f90:
+    Do not try to add W_SO and T_SO to input list for IFS even if multi-layer
+
+  - src_memory.f90:
+    Extend the bounds of dt_so_gl
+
+  - src_namelists.f90:
+    Allow new namelists settings, allocate and compute multi-layer depths 
+    for IFS
+
+  - src_read_coarse_grid.f90:
+    Special treatment for IFS grib fields, which are not really multi-layer 
+    in the COSMO sense
+
+  - src_coarse_interpol.f90:
+    New branch in the interpol_coarse_special_ec routine for interpolating 
+    in multi-layer style
+
+  - src_2d_fields.f90:
+    Allow ke_soil_lm /= ke_soil_in for IFS input
+
+
+Implementation of ART-part with conditional compilation:
+--------------------------------------------------------
+(by Daniel Rieger)
+
+Similar to the COSMO-Model, interfaces have been implemented with "ifdef ART"
+to couple an additional component INT2LM_ART. This additional component is
+provided by KIT together with the COSMO_ART package.
+
+Changes in the Namelist variables:
+  - The namelist variable l_chemistry (in /CONTRL/) has been deleted and has
+    been replaced by two new variables: l_art, l_art_nested
+
+
+
+Changes of Namelist Variables:
+------------------------------
+
+in /CONTRL/:
+
+ - Renamed variable  lprog_qrqs to lprog_qr_qs:
+
+   Renamed Namelist Variable lprog_qrqs to lprog_qr_qs to be consistent with 
+   similar variables in the COSMO-Model and the documentation
+     (data_int2lm_control.f90, src_gme_interpol.f90, src_gribtabs.f90, 
+      src_lm_fields.f90, src_memory.f90, src_namelists.f90, 
+      src_vert_inter_lm.f90, src_vert_interpol.f90)
+
+
+ - Deleted variable l_chemistry (for ART) and introduced l_art, l_art_nested
+
+
+in /LMGRID/
+
+ - CHANGED default of Namelist variable ivctype:
+      before: ivctype_d = 1
+      NOW:    ivctype_d = 2   ! ivctype=1 should not be used any more
+
+
+
+NEW Namelist variables:
+-----------------------
+
+all new Namelist variables are only in affect, if ylm_form_write='api2'
+is chosen:
+
+
+in /LMGRID/:
+
+ - lnewVGrid (default: .FALSE.)
+   to indicate, that a new vertical grid file HHL has to be created
+
+
+in /DATA/:
+
+ - yin_hhl: name of the vertical grid HHL-file that has to be read in case 
+            of COSMO GRIB2 input files
+            This file has to be in the directory yinext_cat
+
+ - ylm_hhl: name of the vertical grid HHL-file that has to be processed in case
+            of COSMO GRIB2 output files
+            This file has to be in the directory ylmext_cat
+
+
+Changes of shortNames:
+----------------------
+
+Renamed shortName PRS_MIN to RSMIN, which is the correct name for the product
+(minimum stomata resistance of plants)
+  (src_gribtabs.f90, src_namelists.f90, src_read_ext.f90)
+
+
+Technical Changes and Bug Fixes:
+--------------------------------
+
+ - data_int2lm_parallel.f90
+   Introduced new MPI data type imp_integ_ga for special grib_api integers kindOfSize
+    (which could be a 4 or a 8-byte integer). This new data type is initialized in
+    subroutine init_environment from environment.f90
+
+ - data_int2lm_parameters.f90
+   Implemented KIND parameters int_ga for grib_api interface (number of bytes,
+    which could be 4 or 8 byte integers)
+   Implemented global KIND parameter int_dp for 8 byte integers
+
+ - data_int2lm_control.f90
+   Renamed ds_grib to ds_grib_single, ds_gribapi to ds_grib_double
+   as more generic names
+
+ - data_int2lm_control.f90
+   Renamed lprog_qrqs to lprog_qr_qs to be consistent with other names
+
+ - external_data.f90:
+   Removed unused variables from the USE sections
+   Introduced calls to new module src_read_hhl, to read hhl files
+
+ - environment.f90:
+   Extended interface for init_environment, to pass integer type imp_integ_ga
+     for grib_api integer (for length of message in bytes)
+   Boundary exchange in extend_field only for num_compute > 1
+
+ - io_utilities.f90:
+    => adapted to latest COSMO-Model version (SR check_input_grid: introduced pv)
+    => implemented pv in subroutine check_input_grid as allocatable array
+    => adapted interfaces to new integer kind parameter from grib_api
+
+ - parallel_utilities.f90:
+    => adapted to latest COSMO-Model version (introduced NOMPI)
+
+ - utilities.f90:
+    => adapted to latest COSMO-Model version (just some comments)
+
+
+ - src_2d_fields.f90:
+   Subroutine init_multi_layer_gme_ml:
+   Corrected interpolation weights when interpolating soil moisture from input
+     soil layers to COSMO soil layers
+
+   Eliminated use of aklm, bklm in SR ground_fields (which was unnecessary)
+   Allow ke_soil_lm /= ke_soil_in for IFS input (Davide)
+
+
+ - src_gme_interpol.f90:
+    => implemented additional "ifdef GRIBAPI", which had been forgotten before
+
+ - src_namelists.f90:
+   compiling lists of initial and boundary variables: add old soil variables
+   only if lmulti_layer_in and lmulti_layer_lm are both .FALSE.
+
+ - src_read_coarse_grid.f90:
+    => implemented additional "ifdef GRIBAPI", which had been forgotten before
+    => get ivctype from pv(4+ke1in+1) only, if list of vertical coordinate 
+       parameters is long enough (it was not coded for old data)
+    => Replaced zhsurfs_lm by hsurfs_in in calls to reference atmospheres for 
+       input grid
+    => moved computation of orography splitting for input orography from src_read_ext
+       to here, because ivctype_in is not known before.
+
+ - src_read_ext.f90:
+    => implemented additional "ifdef GRIBAPI", which had been forgotten before
+    => moved computation of orography splitting for input orography to 
+       src_read_coarse_grid
+
+ - int2lm_org.f90:
+   Implemented additional call to org_lm_output for writing HHL-file
+   Implemented conditional compilation for ART usage (KIT)
+   Allow call to org_2d_fields also for lgsm2lm
+
+
+Changes of Results:
+-------------------
+
+The bug fix in module src_vert_inter_lm changes the results of applications with 
+llm2lm and COSMO input data with a height based vertical coordinate (ivctype_in = 1)!!!
+
+The results of all other applications are not changed.
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.21:                                              (22.03.2013)
+=====
+
+
+Implemented grib_api for writing Grib messages:
+-----------------------------------------------
+
+NOTE: 
+This is a first implementation, so that everybody can test now. 
+It is expected that problems could still occur.
+
+A documentation of GRIB2, grib_api and its usage will be provided on the 
+COSMO web page in a few weeks (when grib_api is also implemented into the COSMO-Model)
+
+
+ - Introduced global variables for the handles of grib sample data
+
+ - Added write formats: 'api1', 'api2' as additional values for ylm_form_write
+ 
+ - Implemented SR write_gribapi in io_utilities.f90
+
+ - Modified modules src_gme_interpol and src_read_coarse grid
+       => main problem: read W_SO, W_SO_ICE from GRIB1 with level type "depthBelowLand"
+          and from GRIB2 with level type "depthBelowLandLayer".
+
+ - New Namelist parameters for handling GRIB2 meta data:
+       => nlocaldefnr
+       => nsubcenter
+
+
+CLM Changes for NetCDF I/O:
+---------------------------
+ 
+ - change some variables which had dimension of length 1 to scalar and hence reduce the 
+   number of dimension IDs 
+   (in data_int2lm_io.f90, src_lm_output.f90, src_read_coarse_grid.f90, src_read_ext.f90)
+
+ - Adaptation to new file name convention in netCDF I/O
+ - Make read of reference date in netCDF input more flexible
+ - rename several local variables in read_nc_gdefs and read_nc_vdefs to meet the coding standards
+
+
+Changes in Namelist Input:
+--------------------------
+
+ - Group /DATA/:
+   ylmext_form_read, yinext_form_read now accept 'apix' for reading data with grib_api
+   ylm_form_write now accepts 'api1' and 'api2' to write GRIB data with grib_api
+   for edition 1 and edition 2.
+
+   New namelist parameters, to set GRIB2 meta data:
+
+   - nlocaldefnr:   to set a local definition number for GRIB2 Local Use Section
+   - nsubcenter:    to define a sub-center per namelist input
+
+Changes of Results:
+-------------------
+
+Existing applications are not influenced by these modifications.
+
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.20:                                              (24.08.2012)
+=====
+
+Changes to subroutines computing the Reference Atmospheres:
+-----------------------------------------------------------
+(by Michael Baldauf)
+
+The same changes that have been done in COSMO-Model 4.24 have now been implemented
+in the INT2LM.
+
+- They have been extended to also compute the temperature t0hl of the reference
+  state on half levels.
+
+- The computation of the k-indices for special pressure levels has been removed
+  from these subroutines and have been put to a new subroutine
+  k_index_of_pressure_levels (also in meteo_utilities)
+
+- For irefatm=1 the pressure and temperature of the reference state on full levels 
+  can now be computed analytically, instead of just averaging the values from the 
+  half levels. For that purpose, a new Namelist switch lanalyt_calc_t0p0 has been
+  introduced in the group /LMGRID/ (with Default=.FALSE.). 
+
+  If the COSMO-Model should run with the new fast-waves solver, it is necessary to 
+  explicitly set this variable lanalyt_calc_t0p0=.TRUE. This corresponds to the 
+  setting of itype_fast_waves=2 in the COSMO-Model!
+
+- For irefatm=2 (subroutine reference_atmosphere_2) t0 is now calculated directly
+  as a function of the height (instead of using p0), which is a bit more intuitive.
+
+
+The interfaces in external_data.f90 and src_read_coarse_grid.f90 have been 
+adapted accordingly.
+
+
+Unification of Utility Modules with latest version of COSMO-Model (4.25)
+------------------------------------------------------------------------
+
+- io_utilities.f90:
+   => changes in SR make_fn: to do necessary corrections of the date-string 
+      and to allow for a 10- or 14-digit date variable
+
+   All interfaces of make_fn in src_gme_interpol.f90, src_read_coarse_grid.f90
+   and src_lm_output.f90 have been changed accordingly
+
+- meteo_utilities.f90:
+   changes in subroutines reference_atmosphere_xx (see above)
+
+- utilities.f90
+   => SR get_utc_date: adapted length of character strings and compute also minutes
+      and seconds.
+
+   There have been necessary changes and adaptations of all date-variables also in:
+     => clm_utilities.f90
+     => int2lm_org.f90
+     => src_2d_fields.f90
+     => src_gme_interpol.f90
+     => src_read_coarse_grid.f90
+     => src_lm_output.f90
+
+
+
+Adaptations for sub-hourly analysis update with LETKF:
+------------------------------------------------------
+(see also COSMO-Model 4.24)
+
+When using the LETKF method for data assimilation in the future, there will be the
+need to have an assimilation cycle of only few minutes, and not of hours. Therefore
+the COSMO-Model has been adapted to read and write files, where also minutes and
+seconds are included. This has now also been implemented in the INT2LM. 
+Now laf-files or lbf-files (when using ytunit_in, ytunit_out) can have the form
+  lbfd20130504121500   for 04th of may 2013, 12 UTC + 15 Minutes and 00 seconds
+      instead of the hitherto existing lbfd2013050412
+
+The main changes are:
+
+  - Subroutine make_fn from io_utilities:
+    The file names, that are created by this subroutine, can have 4 additional
+    digits.
+
+    This is controlled by the Namelist switch ydate_ini for the output data of 
+    INT2LM (i.e. for the lbf-files):
+
+       => If ydate_ini is specified with 10 digits (as it was up to now), also
+          the file names are as they were before.
+       => If ydate_ini is specified with 14 digits (including minutes and seconds),
+          the file names for the output files contain 4 additional digits
+          (laf-files and lbf-files with ytunit_out='d').
+
+    For the input-files of INT2LM this is controlled by the Namelist switch ydate_bd:
+       => If ydate_bd  is specified with 10 digits (as it was up to now), also
+          the file names for the input are as they were before.
+       => If ydate_bd  is specified with 14 digits (including minutes and seconds),
+          the file names for the input files contain 4 additional digits.
+
+  - Subroutine get_utc_date: to also compute the minutes and seconds in a precise
+    manner, the computation of the return parameter "acthour" has been modified,
+    and therefore the results are slightly different.
+
+  - the date variables that are returned by the routine get_utc_date from module
+    utilities have been extended:
+
+                   before                       now
+
+    yactdate1    2013050412                   20130504121532
+
+    yactdate2    SAT 04.05.2013  12 UTC       SAT 04.05.2013  12:15:32 UTC
+
+    This also changes some formats in the ASCII output files
+
+
+NOTE: Most modules have been adapted to the new format of the date variables.
+    BUT all routines dealing with meta data of NetCDF I/O have not been adapted!!!
+
+
+
+Changes for NetCDF I/O:
+-----------------------
+(by Burkhardt Rockel)
+
+Global attributes for NetCDF I/O have been added according to the COSMO-Model,
+which can be set via namelist:
+    yncglob_institution    : originating center name
+    yncglob_title          : title string for the output
+    yncglob_source         : program name and version
+    yncglob_project_id     : identification of the project of simulation
+    yncglob_experiment_id  : identification of the experiment of simulation
+    yncglob_contact        : contact e.g. email address
+    yncglob_references     : URL, report etc.
+    ncglob_realization     : number of the realization of the experiment
+
+These parameters belong to the group /DATA/
+
+
+
+Technical Changes:
+------------------
+
+- data_int2lm_io.f90
+  Increased nmaxlist to 60 to be able to allow all possible new interpolation features
+
+- external_data.f90, src_read_coarse_grid.f90:
+  Adapted interfaces of reference_atmosphere_xx
+  Allocation of zhsurfs_lm in any case, because it is used in subroutine calls
+
+- io_utilities.f90
+  Correction in case of east_add_in, west_add_in, south_add_in, north_add_in is not 0
+
+- src_cleanup.f90
+  Allocation of ztotal_times on all PEs (not only on PE 0), because it is used
+  in all PEs.
+
+- src_coarse_interpol.f90:
+  Removed unused variables from USE-lists and added some more debug prints
+
+- src_gribtabs.f90
+  Corrected standard name for W
+  Changes to read T_S for both climate and forecast versions in case of netCDF input
+
+- src_lm_output.f90
+  Introduction of additional global attributes in case of netCDF output
+    which can be set via namelist (analog the attributes in the namelist in COSMO)
+  Several corrections regarding netCDF output
+
+- src_memory.f90
+  Allocation of lmask_lm in any case, because it is used as an argument to subroutine
+  calls.
+
+- src_namelist.f90
+  Introduction of additional global attributes in case of netCDF output
+    which can be set via namelist (analog the attributes in the namelist in COSMO)
+  Change print statements to account for new namelist parameter yinput_model
+  Changes to write T_S for both climate and forecast versions in case of netCDF output
+
+- src_read_coarse_grid.f90
+  Correction in case of east_add_in, west_add_in, south_add_in, north_add_in is not 0.
+  Added a grib_set 'missing_value' to allow for successive retrieve of a field with
+      the desired value for missing data, necessary in case of frames
+
+
+- src_read_ext.f90
+  Correction in case of east_add_in, west_add_in, south_add_in, north_add_in is not 0
+
+
+
+Summary of Namelist Changes:
+============================
+
+/LMGRID/: 
+ - New logical Namelist switch lanalyt_calc_t0p0
+    lanalyt_calc_t0p0
+
+    Default:  .FALSE.:  values are only averaged between half levels
+              .TRUE.:   to compute values p0, t0 of reference atmosphere
+                        analytically on full levels (only for irefatm=1)
+
+    There is the following dependency between INT2LM and the COSMO-Model
+    regarding this switch:
+
+
+       COSMO-Model                                 INT2LM
+
+    running with Leapfrog                       lanalyt_calc_t0p0 = .FALSE.
+                                                    this is a necessary condition
+
+    running with old Runge-Kutta fast-waves:    lanalyt_calc_t0p0 = .FALSE.
+        (itype_fast_waves = 1)                      this is a necessary condition
+
+    running with new Runge-Kutta fast-waves:    lanalyt_calc_t0p0 = .TRUE.
+        (itype_fast_waves = 2)                      this is a necessary condition
+
+
+
+
+/DATA/:
+ - The value to choose the grib_api for packing / unpacking GRIB data has
+   been changed to be conform with other models at DWD. This affects the
+   variables yinext_form_read and yin_form_read (up to now). 
+   The old value was 'grax', now it is 'apix':
+ 
+     yinext_form_read, yin_form_read
+         = 'grb1':     to choose the DWDLIB for Grib1
+         = 'apix':     to choose the GRIB_API to read Grib1 or Grib2
+
+
+ - Global attributes for NetCDF I/O have been added according to the COSMO-Model
+         Name                      Description                                Default
+    yncglob_institution    : originating center name                            '-'
+    yncglob_title          : title string for the output                        '-'
+    yncglob_source         : program name and version                           '-'
+    yncglob_project_id     : identification of the project of simulation        '-'
+    yncglob_experiment_id  : identification of the experiment of simulation     '-'
+    yncglob_contact        : contact e.g. email address                         '-'
+    yncglob_references     : URL, report etc.                                   '-'
+    ncglob_realization     : number of the realization of the experiment     '-999'
+
+
+Changes of Results:
+===================
+
+
+There are no changes of the results in the NWP applications!
+
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.19:                                              (25.05.2012)
+=====
+
+Initializations for FLake variables / FLake coldstart:
+------------------------------------------------------
+(by Dmitrii Mironov)
+
+A more consistent initialization of the variables for the cold start of FLake has 
+been implemented. All variables are now set to some default reference values, even
+over ocean and over land.  Also the variables t_ice and h_ice are set over lake 
+grid boxes to default values (corresponding to NO ice).
+
+There is an issue with the consistency of fr_lake and depth_lk in the external data.
+All the checks in INT2LM and the COSMO-Model for running the FLake model are based 
+only on depth_lk > 0. So the fr_lake field is not used for any checks!
+
+Now there is the convention, that depth_lk < 0.0 if and only if fr_lake < 0.5.
+To ensure this, a check is done in external_data, and if the check fails, the INT2LM
+is stopped. 
+NOTE: This is only valid, if NO tile approach is used. Then this convention / check 
+has to be changed.
+
+
+Vertical Interpolation of GME soil layers to a different number of layers:
+--------------------------------------------------------------------------
+(by Susanne Brienen)
+
+A vertical interpolation of GME soil layers to a different number of layers 
+has been interpolated. This is used to initialize the typical CLM soil configuration
+by operational NWP GME soil values. A new routine init_multi_layer_gme_ml has been 
+written, based on the routine init_multi_layer_cm from the lcm2lm-case.
+
+
+Outline of the changes:
+
+  - The former variable msoilgrib(:), which contained the specification of the soil 
+    layers (depth in centimeters), has been splitted to 
+      => msoilgrib_in: specification of incoming soil layers     and
+      => msoilgrib_lm: specification of outgoing (COSMO) soil layers
+
+  - incoming soil fields (and related variables) are now allocated with ke_soil_in 
+     (in src_gme_interpol.f90 and src_read_coarse_grid.f90)
+
+  - The incoming soil moisture fields are horizontally interpolated to an intermediate
+    field w_so_gl (similar to the handling of the soil temperatures)
+
+  - If the number of soil layers in the incoming data is different to the number of 
+    layers in the outgoing data (ke_soil_in /= ke_soil_lm), a new subroutine is 
+    called in src_2d_fields:        CALL init_multi_layer_gme_ml
+    This new subroutine is developed according to the subroutine init_multi_layer_cm,
+    which initializes the soil variables for climate runs.
+
+
+If the number of incoming and outgoing layers is identical (ke_soil_in == ke_soil_lm), 
+nothing is changed.
+
+
+Interoperability / BCEPS:
+-------------------------
+
+New Models that are accepted (with Grib2 only): yinput_model=
+  - HIRLAM  (internal flag lhir2lm)
+  - UMG     Unified Model, global
+  - UMR     Unified Model, regional
+
+Extensions necessary to process UM and HIRLAM data:
+  - Added lhir2lm as an INT2LM internal flag in 
+    (data_int2lm_control, external_data, int2lm_org, setup_int2lm, src_2d_fields,
+    src_coarse_interpol, src_namelists, src_vert_interpol)
+
+  - Renamed [ak,bk]_in_uv to [ak,bk]_in_rho according to UM conventions in
+    (data_grid_in, src_cleanup, src_memory, src_vert_inter_lm)
+
+  - src_grids: Compute interpolation weights also for HIRLAM data
+  - src_coarse_interpol: new SR interpol_coarse_special_hir
+
+  - Additional extensions in 
+    (io_utilities (SR check_input_grid), src_gribtabs, src_namelists, src_read_ext,
+     src_read_coarse_grid, src_vert_inter_lm, src_vert_interpol)
+
+Some more modifications to read data from other global models for BCEPS:
+
+  - Some GFS and IFS names have to be translated to DWD standards
+
+
+Conditional Compilation:
+------------------------
+
+Conditional compilation has been implemented for the libraries:
+
+- DWD Grib1 library libgrib1.a with -DGRIBDWD
+  modified: io_utilities.f90, mpe_io.f90, src_gme_interpol.f90, src_namelists.f90,
+            src_read_coarse_grid.f90, src_read_ext.f90
+
+- Grib library grib_api with -DGRIBAPI
+  modified: io_utilities.f90, src_gme_interpol.f90, src_namelists.f90,
+            src_read_coarse_grid.f90, src_read_ext.f90
+
+- NetCDF with -DNETCDF
+  modified:  io_utilities.f90, src_lm_output.f90, src_namelists.f90,
+             src_read_coarse_grid.f90, src_read_ext.f90
+
+
+
+Unification of Utility Modules with latest version of COSMO-Model (4.23)
+------------------------------------------------------------------------
+
+- environment.f90:
+   => changed interfaces to SR extend_field, init_environment, init_procgrid, 
+                           exchg_boundaries
+   => therefore adaptations in INT2LM routines setup_int2lm, src_vert_inter_lm, 
+                           src_vert_interpol, src_lm_fields, src_read_ext
+
+- io_utilities.f90:
+   => changes in SR make_fn (no influence to INT2lM)
+   => implemented ifdef GRIBDWD
+   => send 4 more bytes in all communications using packed GRIB data because of
+      big endian / little endian problem
+   => unifications of NetCDF IDs with COSMO-Model
+
+- meteo_utilities.f90:
+   changes in interface to cloud diag: now gets full pressure instead of 
+   p0 and pp       (no influence on INT2lM)
+
+- parallel_utilities.f90:
+  Modified SR distribute_field, so that another sender than PE 0 can be specified
+    (similar to COSMO-Model 4.23)
+
+- utilities.f90
+   => Modifications of diff_minutes to allow for different calendars
+   => Added support for climatological year with 365 days in SR get_utc_date
+
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+CLM Extensions for next unified Release:
+======================================== 
+
+- Introduction of prescribed soil albedo
+  To choose treatment of solar surface albedo (see also COSMO Version 4.23)
+  Introduced new Namelist switch itype_albedo:
+      1: surface albedo is a function of soiltype 
+            (default: no actions needed in INT2LM)
+      2: surface albedo is prescribed by external fields for dry and saturated soil
+      3: background albedo is prescribed by external fields
+      4: vegetation albedo is modified by forest fraction
+            (done in the COSMO-Model, no actions needed in INT2LM)
+
+
+
+- Introduced possibility to interpolate data from hybrid height and 
+  from pressure coordinates
+  Data can now be interpolated from 
+
+    => pressure levels (e.g. NCEP Reanalyses) similar to GFS data for NWP mode
+       While in NWP mode the namelist variable yinput_model='GFS' has to be 
+       set, in climate mode it is yinput_model='CM' and an internal switch 
+       lcm_pres_coor is set according to NetCDF meta data. So in climate mode 
+       this can only be done with NetCDF input.
+       The pressure level data are interpolated to hybrid model levels. 
+       In the first (NWP) implementation, only 31 level could be chosen, but 
+       now also a 38 level version has been implemented
+
+       If the control pressure level could not be read by initial data, 
+       it is calculated in the module src_pressure_to_hybrid on the hybrid 
+       levels for this case, because it cannot be calculated in 
+       src_read_coarse_grid, where only the pressure level data are available.
+
+    => hybrid height coordinates (e.g. HadGEM2 data) similar to UKMO data 
+       for NWP mode
+       While in NWP mode the namelist variable yinput_model='UMG' or 'UMR' has to be 
+       set, in climate mode it is yinput_model='CM' and an internal switch 
+       lcm_hgt_coor is set according to NetCDF meta data. So in climate mode 
+       this can only be done with NetCDF input.
+       The incoming reference atmosphere has to be set to irefatm_in=2 also for
+       lcm_hgt_coor, in order to calculate the correct reference pressure and
+       pressure deviation.
+
+
+- Added support for climatological year with 365 days
+  (See also comments in COSMO-Model 4.23)
+  The usage of a 365 days calendar is defined by setting the Namelist parameter
+  itype_calendar = 2.
+
+NOTE:
+The new routines difmin_365, datjul_365, etc. that have been 
+proposed by the CLM community for the treatment of this new calendar, have not
+been taken.
+
+Instead we did the following:
+The routines difmin and datjul from the external GRIB (or MISC) library have
+been replaced a new COSMO routine "diff_minutes" (located in utilities.f90)
+This routine has been extended with the argument itype_calendar, and the
+different calendars are now treated within this routine.
+No other routines are necessary now. 
+
+
+
+- New module "clm_utilities" holding climate version specific subroutines
+  (for NETCDF only)
+  The new subroutine setup_clm is called in setup_int2lm
+
+
+- CLM Technical Changes and Bug Fixes: see section below
+
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+Bug Fixes and Technical Changes:
+--------------------------------
+
+- external_data.f90, interp_utilities (SR interp_l):
+  All organizational variables for isolated points (globl_iso_points, local_iso_points)
+  are initialized with -1; if no other values are set during the initialization,
+  then there are isolated points with no matching land-sea-mask in the driving model.
+  If the isolated points are water points (inland lakes), they are initialized by 
+    interpolation without taking care of the land-sea-mask.
+  If the isolated points are islands within water, the model is stopped, because not all
+    necessary values can be initialized then with meaningful values.
+
+  Use longitudes_in, latitudes_in when computing the coordinates of isolated points 
+  instead of dlon_in, dlat_in to account for non equidistant grid (e.g. gaussian)
+  (by CLM)
+
+
+- interp_utilities.f90:
+  match interpolation (searching for nearest grid point with same land-sea-mask)
+  has to be switched off, when working with frames (because such a grid point 
+  might not exist)
+  (by Davide Cesari)
+
+
+- io_utilities.f90, Subroutine check_input_grid:
+  Corrected settings of zstartlon_g/zendlon_g for GRIB2 in SR check_input_grid
+  in case of startlon / endlon < 180.0 (in this case these variables were not 
+  set before)
+  (by Davide Cesari)
+
+
+- src_2d_fields.f90:
+  (by CLM)
+  Correct calculation of water content in soil layers deeper than the global 
+     model soil layers in case of itype_w_so_rel=2
+
+  Correction in init_multi_layer_cm: 
+    include W_SO for deepest layer (no longer == 0) 
+    correct multiplication of layer thickness
+
+
+- src_decomposition.f90:
+  Added initialization of ke1in also for GME data in decompose_gme
+
+  Adaptations of decompose_cm when domain crosses the date line
+  (by CLM)
+
+  Make sure that the same part of coarse grid domain is considered for
+    sequential and for parallel runs for checking the isolated grid points
+    (Adaptation in Section 3 of decompose_cm)
+
+
+- src_gribtabs.f90
+  Corrections/additions for lcm2lm
+  (by CLM)
+
+
+- src_lm_fields.f90:
+  Correct computation of splines when top height of fine grid model is larger
+  than that of the coarse grid model (initialization of izln_vec)
+  (by CLM)
+
+
+- src_namelists.f90:
+  => Distribute values of czmls_in for Namelist distribution instead of czml_soil_in
+  => Check consistency between lmixcld and lprog_qi
+  => Split long directory names for distribution using charbuf (len=100)
+  => Deactivated l_cressman until it is tested
+     (by CLM)
+
+
+- src_pressure_to_hybrid.f90
+  Modified lower boundary condition for vertical interpolation, if surface pressure
+   exceeds the "first guess" press_level(ke_in)+5000.0
+  (from CLM: Make sure that lower pressure boundary is always greater than
+    press_level(ke_in))
+
+
+- src_read_coarse_grid.f90:
+  => Added ensemble type 203 for COSMO-LEPS (Christoph Gebhardt)
+  => Consider nlevskip > 0 also for hybrid layers (by Davide Cesari)
+  => Include checking of necessary input for lcm2lm (CLM)
+  => Allow the name "soil_depth" for dimension and name of soil layers in 
+     netCDF CM input alternatively to "soil1" (CLM)
+
+
+- src_read_ext.f90:
+  => Change IF clause in lfilter_oro to avoid wrong field indexing
+  => Added some more checks for the external parameter data set
+
+
+- src_vert_inter_lm.f90:
+  Same bug fix for spline computation as in src_lm_fields.f90
+
+
+- src_vert_interpol.f90:
+  Restructured the computations in Section 3 of Subroutine adapt_pressure_1:
+  The distinction of cases is now completely disjunct and therefore numerical 
+  problems in the case of nearly identical orography heights in the coarse grid
+  model and the COSMO-Model are avoided.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+Summary of Namelist Changes:
+============================
+
+/CONTRL/:
+ - yinput_model now accepts additional models:  UMR, UMG, HIRLM
+
+ - itype_calendar now accepts additional value: 2 (for 365-day year support)
+
+ - New variable itype_albedo for prescribed surface albedo
+      1: surface albedo is a function of soiltype 
+            (default: no actions needed in INT2LM)
+      2: surface albedo is prescribed by external fields for dry and saturated soil
+      3: background albedo is prescribed by external fields
+      4: vegetation albedo is modified by forest fraction
+            (done in the COSMO-Model, no actions needed in INT2LM)
+
+
+
+Changes of Results:
+===================
+
+
+There are no changes of the results in the NWP applications!
+
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.18:                                              (11.03.2011)
+=====
+
+This is just a technical update:
+
+- src_decomposition.f90
+  By mistake we used the integer send buffer to gather real values
+  and computed some minima and maxima. This is now really done
+  with real send- and receive buffers.
+
+- src_gribtabs.f90
+  The new field fr_urban_lm has been implemented (which was forgotten
+  in the last version). This field has been implemented with grib1
+  table 250 (the MeteoSwiss table) and element number 85.
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.17:                                              (25.01.2011)
+=====
+
+The following has been implemented:
+
+Technical Extensions:
+---------------------
+
+ - Interpolation of QR, QS from IFS data
+   Some technical adaptations in src_gribtabs, src_read_coarse_grid to read
+   and interpolate rain and snow from IFS data.
+   Note the differences in the names:
+           DWD       IFS
+    rain:   QR       crwc
+    snow:   QS       cswc
+
+ - Implementation of a logical switch lurban:
+   If lurban is set to .TRUE., an additional external parameter field
+   fr_urban_lm is read from the external data and provided to the COSMO-Model
+   initial fields.
+
+      NOTE: For the INT2LM, as it is provided, this is only a dummy-switch, 
+            because no Urban-Module is provided. But there are several groups
+            who add this module on their own and can work with this switch now.
+
+Bug Fixes:
+----------
+
+ - src_grids.f90
+   There still was a problem when computing the interpolation weights in the
+   subroutine coor_coarse_grid_lm from src_grids.f90.
+   It was related to the computation of the INT-function, which could give the
+   wrong value of the lat/lon values of the fine grid points are the same as
+   for the coarse grid points. These cases are now checked separately and the
+   NINT-function is used then.
+
+ - src_read_coarse_grid.f90
+   The fields zt0, zp0hl in SR org_read_coarse_grid, Section 6, must be 
+   allocated with verical dimensions ke_in, ke1in.
+   (reported by Christian Grams, KIT)
+
+ - src_lm_fields.f90
+   The bottom boundary condition for the vertical interpolation of QR, QS was not
+   set correctly. This led to non-reproducible results.
+
+ - src_decomposition.f90
+   There still was a bug regarding the match interpolation and the treatment
+   of isolated points. This could only be seen, when interpolating between grids
+   with a different rotation (as IFS => COSMO). 
+   Because every fine grid COSMO subdomain only stored the coarse grid values
+   for its own domain, the overall coarse grid domain considered could be different
+   when using different number of processors. This has now been changed, so that
+   always the same domain is stored as when running only on 1 processor.
+
+
+Changes in the Results:
+-----------------------
+
+ - Due to the changes in src_grids, the interpolations from a regular coarse grid
+   to the COSMO grid can change. In case of COSMO-EU => COSMO-DE there are no
+   changes.
+
+ - The results of gme2eu, ifs2eu change in the fields QR, QS because of the bug fix
+
+ - The results of ifs2eu change in the soil variables (if they are computed)
+
+Nothing else changes
+  
+
+Changes in the Namelists:
+-------------------------
+
+There is a new namelist parameter in /CONTRL/
+
+ - lurban:   if set to .TRUE., an additional external parameter for the 
+             fraction of urbanity is read from the external parameter data set.
+
+
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.16:                                              (16.12.2010)
+=====
+
+This is a bug fix: 
+
+src_vert_interpol.f90, SR adapt_pressure_1, Section 3:
+When computing the first pressure adaptation, there was an erroneous epsilon
+introduced, when looking for the model layer in which the coarse grid
+orography would be.
+
+Instead of
+        IF (zdfis  (i,j) > zfiu(i,j)+1.0E-6_ireals .AND. zdfis  (i,j) <= zfio(i,j)) THEN
+it must be
+        IF (zdfis  (i,j) > zfiu(i,j) .AND. zdfis  (i,j) <= zfio(i,j)) THEN
+
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.15:                                              (08.12.2010)
+=====
+
+There are some bug fixes and technical adaptations to the latest version:
+
+ - external_data: Computation of values for isolated points 
+   The computation of corresponding coarse grid points had to be adapted
+   to the case when input and COSMO grid have different rotations.
+
+ - src_grids: Computation of interpolation weights 
+   There was a bug when storing the interpolation weights for u- and -v grid
+   points
+
+ - src_read_coarse_grid:
+   For reading / computing the vertical coordinate parameters of the input grid,
+   the parameter nlevskip (used for IFS) had been forgotten.
+
+ - src_namelists.f90:
+   The default value for nbitmap_d has been doubled because of larger GME grid.
+
+ - src_read_coarse_grid.f90:
+   Checking EPS characteristics has now also be implemented for grib_api
+
+ - src_lm_output.f90:
+   For the new reference atmosphere, there were undefined values in the gds between
+   the vertical coordinate and the 2 additional parameters delta_t, h_scal (if SLEVE
+   coordinate is not used). These values have now be set to 0
+   For running in ensemble mode, the number of total ensemble members has erroneously
+   be set to 0. This has been removed.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ - Changes to the Results 
+   
+    With the next bug fix in src_grids, the results are now again similar to 
+    version INT2LM 1.13! The only changes come from the computation of the 
+    isolated points, which is now definitely different to the treatment before.
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.14:                                              (18.11.2010)
+=====
+
+The following modifications have been implemented:
+
+ - Implementation of reading data with grib_api
+   In the near future, the grib_api from ECMWF will replace the DWD grib(1)
+   library. With grib_api it is possible to read / write Grib 1 and Grib 2
+   data. In a first step, grib_api has been implemented in INT2LM only for
+   reading data.
+
+   All references to grib_api routines have been encapsulated with #ifdef GRIBAPI
+   To activate these calls, -DGRIBAPI has to be specified for the compilation.
+   This implementation must use grib_api-1.9.0 or higher.
+
+   To read grib data with grib api can be specified by the Namelist parameters
+     => yinext_form_read = 'grax'   (other already existing value:  'grb1', 'ncdf')
+     => yin_form_read    = 'grax'   (other already existing value:  'grb1', 'ncdf')
+
+   Setting these parameters to 'grb1' will activate the DWD grib library which only
+   can read grib1.
+   Setting these parameters to 'grax' will activate the grib_api. For reading data,
+   it must not be specified, whether grib1 or grib2 is read, because grib_api will
+   detect that on its own (therefore the "x").
+
+   To read the external COSMO-Model parameters is not yet possible with grib_api
+
+   A number of changes were necessary to implement grib_api. Here are the highlights:
+
+     => Modification of the (grib) variable table for input data in src_gribtabs:
+        Another element was introduced in the data structure ar_des_input:
+          CHARACTER (LEN=30)             :: ylevtyp        ! name of level type
+        to store the level type in a character string.
+        While in grib1 a product is identified by tabtyp,ee,levtyp, in grib2
+        the name and the level type (in characters) are used.
+
+        We already unified the different setup_vartab_xxx routines for the different
+        input models to one routine setup_vartab_grid_in. A common setup of the 
+        variable table is defined first, and changes for the different grids are
+        done at the end of this subroutine.
+
+     => Module io_utilities.f90:
+        Extensions in SR open_file and close_file to handle grib_api I/O
+        New SR read_grib_api to get grib messages using grib_api calls
+        New SR check_input_grid, which unifies the former SR check_xx_grid.
+           This SR now also uses grib_api calls to get grib meta data from the grib messages
+        Modifications to SR check_gme_grid (which remains) to get grib meta data
+           using grib_api calls
+
+     => Module src_gme_interpol.f90:
+     => Module src_read_coarse_grid.f90:
+     => Module src_read_ext.f90:
+        These 3 modules have been extended to 
+           - open / close grib files
+           - read grib messages
+           - get meta data
+           - unpack the grib records
+        using grib_api calls
+
+ - Processing data from JMA and NCEP
+   In addition to implement grib_api into INT2LM for reading grib data, some more
+   changes were necessary to process data from the JMA (Japan) and NCEP (USA).
+     => from JMA only t_2m, qv_2m are provided instead of surface values; 
+        these are taken as lower boundary conditions for the vertical interpolations
+     => from NCEP only pressure levels are provided for atmospheric data.
+        Therefore another vertical interpolation has been added to interpolate to
+        model levels.
+
+   Because the number of input models is increasing, the namelist parameters
+   lgme2lm, llm2lm, lec2lm, lcm2lm, etc. have been eliminated. The variable
+   themselves are still used as internal model variables.
+
+   A new Namelist parameter has been introduced to specify the input model with 
+   a string:
+
+    CHARACTER (LEN=5)                ::           &
+      yinput_model    ! string to identify the input model
+                      ! valid options: 'GME', 'COSMO', 'IFS', 'UM', 'GSM', 'GFS'
+
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ - Enabled reproducibility when interpolating from a regular coarse grid domain
+   to the COSMO-Model:
+    Problem: The computation of surface values for isolated points (lakes in
+     the land; islands in the oceans) was looking for the next grid point with
+     the same land-sea-mask. Depending on the domain decomposition, this could
+     lead to different points.
+
+     Now, all isolated land points are identified at the beginning of the
+     program, and for every isolated point, the next grid point in the total
+     domain of the coarse grid is searched and saved (in SR external_data,
+     Section 4.6: Test whether isolated points are present). All information
+     on these isolated points are gathered in the variable globl_iso_points,
+     which is of the structure "struct_for_isolated", defined in data_profiles.f90
+
+     In the SR interp_l in module interp_utilities.f90, the values of the
+     special field at the isolated points are gathered from every processor
+     and are given to all processors, if a "match" interpolation is done.
+     In the loops over the grid points, the search for the next grid point
+     with same land-sea-mask is then replaced by just putting the exchanged
+     variables to the proper COSMO grid points.
+
+  This procedure changes the results for the surface variables compared to
+  former versions and can also influence the atmosphere, because t_s
+  is used as lower boundary condition for vertical interpolation of T.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ - Bug fix in src_grids for the computation of interpolation weights
+
+    => The computations of the interpolation weights has been corrected.
+       In some cases, when input grid point and COSMO grid point are identical,
+       it could happen that unrealistic high interpolation weights had been 
+       computed. Not it is ensured that these weights are between 0 and 1.
+
+    => The computations of lat and lon-values for the COSMO-model grid points
+       have been modified to use the startlat_tot, startlon_tot values instead
+       of startlat, startlot to be domain decomposition independent
+
+
+    These changes do influence the results when using input data from COSMO
+    or IFS.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ - Introduction of lake water salinity
+   The possibility to process an external parameter for lake water salinity
+   has been implemented (salt_lk_lm). If this parameter is not available, it
+   is set to a default value of 0.0.
+   (by Burkhardt Rockel)
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ - Adaptations for NetCDF I/O of 3D field HORIZON
+   The NetCDF I/O has been adapted to deal with the three-dimensional external
+   parameter HORIZON, necessary for the topographical corrections
+   (by Anne Roches, CH)
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ - Further bug fixes and technical changes
+
+     => src_read_ext.f90:  
+        broadcast irefatm_in for NetCDF input to all tasks
+
+     => src_vert_interpol.f90, src_coarse_interpol.f90:
+        introduced additional debug output
+
+     => src_lm_output.f90:
+        corrected the attribute "flag_values" in NetCDF for soiltyp
+        added characteristic 'i' for inland water lakes
+
+     => src_lm_field.f90:
+        corrected the vertical dimension of qg in call to SR vert_int_lm
+
+     => src_gribtabs.f90:
+        added characteristic 'i' for inland water lakes
+
+     => external_data.f90:
+        initialize the full soiltyp field for option lec2lm
+
+     => info_int2lm: replaced several 1:LEN_TRIM(.) constructs by TRIM(.)
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ - Changes to the Namelist Input
+
+    Group /CONTRL/
+     => eliminated parameters:        lgme2lm, llm2lm, lec2lm, lcm2lm
+     => introduced new parameter:     yinput_model
+                                      ('GME', 'COSMO', 'IFS', 'UM', 'GSM', 'GFS')
+
+    Group /DATA/
+     => new values for parameters:
+          yinext_form_read = 'grax'   (other already existing value:  'grb1', 'ncdf')
+          yin_form_read    = 'grax'   (other already existing value:  'grb1', 'ncdf')
+       
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ - Changes to the Results
+
+    The bug fixes in src_grids do influence the results for all input models
+    but the GME.
+
+    All other modifications are neutral to the results.
+
+-------------------------------------------------------------------------------
+
+1.13:                                              (13.10.2010)
+=====
+
+This is an intermediate version, where checking the EPS types in
+SR src_read_coarse_grid has been extended to work with type 202
+(COSMO-Runs at ECMWF with different global models). This is necessary
+for COSMO-DE-EPS to go into production.
+
+Christoph Gebhardt, Ulrich Schaettler
+
+===== src_read_coarse_grid.f90, modified by: Christoph Gebhardt, Ulrich Schaettler =====
+Modifications to recognize additional EPS types as boundaries
+
+-------------------------------------------------------------------------------
+
+1.12:                                              (14.06.2010)
+=====
+
+The new version contains the following modifications:
+
+ - Bug fix in SR coor_coarse_grid_lm for option ec2lm:
+   (By Stephan Pfahl from ETZ)
+   While introducing the decomposition independent computation of the
+   interpolation weights, it was forgotten to take care of a non-staggered
+   grid like the one from IFS.
+
+ - The possibility to switch the reference atmosphere from the incoming to the
+   outgoing grid has been implemented in the module src_vert_inter_lm.f90:
+
+   Problem:
+   - If the incoming model delivers pressure or pressure deviation, the pressure
+     deviation is used and interpolated to the outgoing grid. But this pressure
+     deviation belongs to the incoming reference atmosphere.
+   - If the outgoing reference atmosphere is different, the following adaptation
+     is done (Section 5 in SR org_vert_inter_lm):
+      => Compute the incoming reference atmosphere on the outgoing vertical levels
+         (Variable zp0_lm_refmod: the corresponding formulats from SR
+          reference_atmosphere_x are used)
+      => Compute the full pressure on the outgoing grid: p_lm = zp0_lm_refmod + pp_lm
+      => Compute the pressure deviation for the outgoing reference_atmosphere
+          pp_lm = p_lm - p0_lm
+
+ - Option lum2lm:
+   The UM delivers full pressure. The reference pressure is computed for vertical
+   interpolation, but now using only the new reference atmosphere.
+
+ - Vectorization of SR moist_split:  (by Oliver Fuhrer)
+   The SR moist_split has now been written for whole fields. Therefore no CALL
+   within DO-loops is necessary and the calling routines do vectorize now.
+
+ - The new info-module is called after the domain decomposition only by compute
+   processor 0.
+
+ - Technical adaptations for CLM Version:
+   - Adapted comments and checks for new types for variable itype_w_so_rel
+   - preset depth of lakes with 20.0 meters, if DEPTH_LK could not be read
+   - Allow "O"ptional fields in the list for boundary data input
+
+
+These modifications do not influence the results of the options: lgme2lm, llm2lm
+For lec2lm, the bug fix in src_grids changes the results
+For lum2lm the results are modified because of using the other reference atmosphere
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.11:                                              (31.05.2010)
+=====
+
+All files have been adapted in order to bring them to SVN in the near future.
+
+A new information module info_int2lm has been introduced into the INT2LM
+This module has been introduced in all DWD libraries and models and gives
+information on the compiler, compiler options, etc.
+
+The informations are printed by the subroutine "info_print" which can
+be called with a string of single characters. Every character stands for
+a certain information, which is given in the following list:
+
+     '?'     Special: Get a list of all Options available
+     'c'     Get the time the code had been compiled
+     ' '     Print an empty line
+     'd'     Get the debug options used for compilation
+     'i'     Get the time the code had been put into the version system
+     'm'     Get whether the code has been marked locally modfied
+     'n'     Get the library name
+     'p'     Get the time the code had been put into production
+     'r'     Get the revision number from where the code had been extracted
+     't'     Get the revision tag from where the code had been extracted
+     'x'     Get the time the code had been extracted from the version system
+     'B'     Get the full path of the binary name
+     'C'     Get the user (login name) who did the compiling
+     'D'     Get all the macros defined (-D...) during compilation
+     'L'     Get the compiler options used for linking
+     'N'     Get the compiler name used for compilation
+     'R'     Get the information of other used libraries, too
+     'S'     Get the runtime date/time of the strart of the binary
+     'U'     Get all the macros undefined (-U...) during compilation
+     'V'     Get the compiler version used for compilation
+     'W'     Get the nodes where the binary is running
+     'X'     Get the data decomposition
+
+The actual implementation in the main program int2lm_org calls info_print with no
+argument, which gives the following default listing:
+
+ ==== Code information used to build this binary ====
+ Binary name ....: tstint2lm
+
+ Library name ......: int2lm
+ Tag name ..........: V1_13
+ Checkin-Date ......: 2010-05-11
+ Code is modified ..:
+ Compile-Date ......:
+ Compiled by .......:
+
+ Current start time : 2010-06-01 14:37
+ Running on nodes ..:
+ Data decomposition :
+ ==== End of code information ====
+
+
+Because not all information is dynamically available, the source code
+administrator (or user) has to set some of the information per hand in
+the module info_lm_f90 before compiling program.
+
+The following information can be set by calling info_define in the main
+program int2lm_org.f90:
+
+  - BinaryName:  Name of the program
+  - Nodes:       Information about nodes used
+  - Domain:      Information about the domain decomposition
+
+The actual implementation in the main program int2lm calls info_define just
+with the name of the binary:
+
+  CALL info_define ('tstint2lm')
+
+
+The following information can also be given by a Namelist Input file INPUT_INT2LM
+if this is available:
+  - INFO_Options:    string with the characters to specify, which information
+                     should be printed
+  - INFO_BinaryName: Name of the program
+  - INFO_Nodes:      Information about nodes used
+  - INFO_Domain:     Information about the domain decomposition
+
+
+Michael Gertz
+
+ - src_grids.f90:
+   Bug correction in coor_coarse_grid_lm (S. Pfahl, 04/2010)
+   Computing the interpolation weights using startlat_tot,startlon_tot was
+   not correct for non-staggered grids (like IFS in case of lec2lm)
+
+ - src_read_coarse_grid.f90:
+   Changed computation of reference pressure for UM data to type irefatm_in=2
+
+ - src_vert_inter_lm.f90:
+   Implemented possibility to switch the reference atmosphere between incoming
+   and outgoing data
+
+-------------------------------------------------------------------------------
+
+1.10:                                              (15.12.2009)
+=====
+
+The new version contains the following modifications:
+
+- Implementation of lum2lm
+    => new Namelist variable lum2lm in /CONTRL/ (Default: .FALSE.)
+    => Actions:
+        decompose UM grid (analogous to COSMO input grid)
+        new variable table for UM data (but with DWD grib element numbers)
+        input and horizontal interpolation (new SR check_um_grid; check_required_um)
+
+    NOTE: This option is not fully implemented: up to now, only the atmospheric
+          variables are treated. The soil is not considered.
+          Also, this option is not yet documented. It is still under testing by
+          the developers and should used with great care.
+
+
+- Implemented option to interpolate t_ice, h_ice from GME for sea-ice model
+    => new Namelist variable lseaice in /CONTRL/ (Default: .FALSE.)
+
+- Implemented option to compute FLake variables for cold start
+    => new Namelist variable llake_coldstart in /CONTRL/ (Default: .FALSE.)
+
+   NOTE: This option should be used with great care: For case studies it is
+         of NO sense to run the lake model, because it takes several weeks 
+         until the lake variables have reached a useful content.
+
+- Decomposition independent computation of the interpolation weights
+   There are reproducibility problems with the INT2LM, option llm2lm.
+   One reason was, that the interpolation weights were computed for every 
+   coarse grid subdomain. And with differing subdomains also the interpolation
+   weights could be different, because of rounding errors. This has now been
+   fixed by computing the interpolation weights always by using the information 
+   for the total coarse grid domain.
+
+   Another problem still remains for the soil variables that are horizontally
+   interpolated using the "match" type of horizontal interpolation. If none
+   of the surrounding grid points has the same land-sea characteristics as the
+   point in the fine grid, a search in the whole coarse grid subdomain is done.
+   Depending on the subdomains, the result of this search can be different.
+
+   There is no solution for that up to now!
+
+- Bug fixes and Technical Adaptations
+   => Added field p_in to read pressure or pressure deviation
+   => Set freshsnw to 0 only for lmulti_layer_lm
+   => Call to distribute_values in src_namelists only for nproc > 1
+   => Repaired vectorization problems in adapt_pressure1/2 in src_vert_interpol
+
+
+Summary of new Namelist Switches:
+---------------------------------
+
+ - Group /CONTRL/ in SR input_control:
+
+     NEW:  lseaice                             Default:               .FALSE.
+           llake_coldstart                                            .FALSE.
+           lum2lm                                                     .FALSE.
+
+
+Changes of Results:
+-------------------
+
+lgme2lm:  The results of this application are not changed at all:
+
+llm2lm:   The results of this application are changed slightly by the following 
+          modificiations:
+           - domain decomposition independent computation of the interpolation
+             weights. This is due to numerical reasons.
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.9:                                               (31.08.2009)
+====
+
+The following topics have been implemented in this version of INT2LM
+
+ - New Reference Atmosphere
+ - Modifications in the initialization of perturbed pressure pp
+ - Reading additional external parameters
+ - Modifications in the vertical interpolation in case of lm2lm
+ - Alternative interpolation of soil humidity
+ - Alternative treatment of IFS humidity
+ - New options for itype_w_so_rel
+ - Bug fixes and technical adaptations
+
+
+New Reference Atmosphere 
+------------------------
+
+For the fine grid model domain:
+
+The new reference atmosphere is based on the temperature profile
+
+       t0(z) = (t0sl-delta_t) + delta_t*exp(-z/h_scal),
+
+where z = hhl(k) is the height of a model grid point. To choose the new
+reference atmosphere, the following new Namelist switches have to be set:
+
+   irefatm: type of the reference atmosphere
+      = 1:  old reference atmosphere
+      = 2:  new reference atmosphere
+
+If irefatm=2 is chosen, the following variables are also needed:
+
+   delta_t:  temperature difference between sea level and stratosphere
+             reasonable values:   50.0 ... 100.0 Kelvin
+
+   h_scal:   scale height
+             reasonable values:   7000.0 ... 12000.0 meters
+
+These 3 variables are new Namelist parameters in the group /LMGRID/.
+
+(by Guenther Zaengl)
+
+
+For the (COSMO) input grid:
+
+Also the input grid can have the new reference atmosphere (if input data
+are coming from the COSMO-Model). New variables irefatm_in, delta_t_in and
+h_scal_in are used for that. But these variables are no Namelist variables,
+because they are read from the header information (vertical coordinate 
+parameters) of the input data.
+
+NOTE: Reading of the vertical coordinate parameters of the input model
+      (and therefore also computation of the input reference atmosphere)
+      was moved from routine external_data to the module src_read_coarse_grid,
+      because only then real atmospheric fields are read, that definitely
+      contain the vertical grid information. 
+      Twodimensional fields, that are read in external_data, need not 
+      carry these informations.
+
+
+The CLM Community implemented the new reference atmosphere also
+for the NetCDF I/O.
+
+
+Modifications in the initialization of perturbed pressure pp:
+-------------------------------------------------------------
+
+src_vert_inter_lm.f90:
+
+The recalculation of a hydrostatic balanced pressure deviation in the module
+src_read_coarse_grid.f90 (Section 6) has been improved
+
+This changes the results in case of llm2lm and lbalance_pp.
+
+(by Guenther Zaengl)
+
+
+
+Reading additional external parameters:
+---------------------------------------
+
+New external parameters are provided for the COSMO-Model, which can be 
+optionally read from the external parameter file, if present:
+
+- New field EMIS_RAD for the radiation: Thermal radiative surface emissivity
+  New Namelist parameter in group /CONTRL/ to read this field:  lemiss
+  (Default: .FALSE. - EMIS_RAD is not read).
+
+- New field PRS_MIN for the soil model: Minimum stomata resistance of plants
+  New Namelist parameter in group /CONTRL/ to read this field:  lstomata
+  (Default: .FALSE. - PRS_MIN is not read).
+
+- For plant characteristics: Further options have been implemented to compute
+  the fields plcov_lm, lai_lm  (and z0_lm). This is controlled by the 
+  Namelist parameter itype_ndvi:
+
+   = 0: default and existing option:
+        plcov_lm and lai_lm are computed using max (vegetation) and min (rest)
+        values
+
+   = 1: up to now this option was used to read GME external parameters for 
+        the ratio of monthly mean of normalized differential vegetation indices
+        to the annual maximum. This has been eliminated.
+    
+        Now the corresponding external parameters are provided on the COSMO-Model
+        grid and these are used instead to compute plcov_lm and lai_lm.
+        The fields are NDVI_MRAT (provided by DWD in Grib)
+       
+   = 2: This has been introduced by the CLM Community:
+        12 monthly climatological mean values are read for plcov, lai and z0
+        and actual values for the given day are computed by linear interpolation.
+        The fields read are plcov12_lm, lai12_lm, z012_lm (provided by the 
+        CLM Community in NetCDF).
+
+- For aerosols that can be used in the radiation scheme:
+  Up to now the radiation scheme in the COSMO-Model uses constant aerosol values
+  for desert, sea, land and urban areas. Now, monthly mean of the following 
+  aerosol types can be read from the external parameters:
+    AER_SO4:      Tegen (1997) aerosol type sulfate drops
+    AER_DUST:     Tegen (1997) aerosol type mineral dust
+    AER_ORG:      Tegen (1997) aerosol type organic
+    AER_BC:       Tegen (1997) aerosol type black carbon
+    AER_SS:       Tegen (1997) aerosol type sea salt
+
+  This can be controlled by the new Namelist Switch itype_aerosol:
+  = 1: Default and present option: no external parameters are read;
+       the COSMO-Model uses constant values
+  = 2: 12 monthly mean values for the above fields are read and the INT2LM
+       computes an actual value for the given day and gives that to the
+       COSMO-Model for further processing.
+
+- For topographic corrections in the radiation, NL Switch lradtopo:
+  This has been implemented before, but the field HORIZON is now (really)
+  treated as a 3D variable. In Grib it is coded with leveltyp 110 and
+  the levels 1..nhori. 
+  nhori is a new Namelist parameter in group /CONTRL/ (Default: 24)
+  (added by MCH)
+ 
+- For the FLake Model, NL switch llake: the mask fr_lake_lm is already read,
+  but also the depth of the lakes is needed. This is now also read (DEPTH_LK),
+  if llake = .TRUE. (added by CLM)
+
+
+Modifications in the vertical interpolation in case of lm2lm:
+-------------------------------------------------------------
+
+src_vert_inter_lm.f90:
+
+There were bugs in the vertical interpolation in the lm2lm-case, which were
+corrected by Anne Roches, MCH:
+ - The use of "kgr" in the computation of the linear regression was wrong:
+   kgr is the index of the PBL height, refering to the input grid, 
+   i.e. k counting from top to bottom. But it was used in the variables for
+   the intermediate profiles, which serve as input for the spline interpolation,
+   which are counting k from bottom to top!
+
+ - The linear regression is now done only for temperature. The horizontal wind
+   components are treated now as all other variables.
+
+ - The extrapolation of the input profile below the surface is now done only
+   to 50 m below the surface of each grid point
+   (Before, a minimum height over the whole domain was computed).
+
+These modifications change the results in case of llm2lm.
+
+(by Anne Roches, MCH)
+
+
+Alternative interpolation of soil humidity:
+-------------------------------------------
+
+An optional interpolation of soil humidity has been introduced by MeteoSwiss.
+following the introduction of the new hydrological IFS model on Nov. 6, 2007.
+This option is also used for other input models.
+
+It can be controlled by the new Namelist Switch:  l_smi (default: .FALSE.)
+
+
+Alternative treatment of IFS humidity:
+--------------------------------------
+
+An optional treatment of the humidity (of IFS, but also lcm2lm) has been 
+implemented by MeteoSwiss. This can be controlled by the new Namelist
+Switch lmixcld (default: .FALSE.)
+
+ATTENTION: 
+This new treatment has not been fully implemented in the official version.
+It calls a routine moist_split, which is written only for one grid point.
+Therefore the corresponding loops do not vectorize on the NEC.
+The code lines calling this routine are commented, so that lmixcld=.TRUE. 
+will not work without modifications to the Source Code!
+
+
+New options for itype_w_so_rel:
+-------------------------------
+
+2 new options have been implemented by the CLM-Community for itype_w_so_rel:
+
+  = 3: The soil moisture profile in relation to the pore volume is kept 
+       constant below the deepest layer of the input soil model. 
+  = 4: The soil moisture profile related to field capacity is
+       kept constant there.
+
+
+Technical Adaptations and Bug Fixes
+-----------------------------------
+
+- In case of lm2lm, the cloud ice qi was added erroneously to the cloud water qc!
+  This has been eliminated (in SR interpol_coarse_special_lm in Module
+  src_coarse_interpol.f90).
+  This changes the results in case of llm2lm.
+
+- The computation of the reference atmosphere for the coarse grid input model
+  has been moved from routine external_data.f90 to routine 
+  src_read_coarse_grid.f90, because the external parameters, which are 
+  read in external_data, need not carry the information about the structure 
+  of the vertical grid.
+
+- Use of bicubic spline interpolation:
+  The bicubic spline interpolation is implemented only for lcm2lm=.TRUE.
+  A consistency check between l_bicub_spl and lcm2lm is performed now
+  in src_namelists.
+
+- src_read_coarse_grid.f90:
+  A call to global_values in SR get_vert_coord is only done, if num_compute > 1
+
+- src_read_ext.f90:
+  The variables zstartlat_ext, zstartlon_ext are exchanged between processors
+  now in any case (was only for lfilter_oro before).
+
+- src_decomposition.f90:
+  Checks for the coarse grid domain have been corrected.
+
+- src_lm_output.f90, src_namelists.f90:
+  A new NL switch l_ke_in_gds has been introduced in the group /DATA/ 
+  (default: .FALSE.), to explicitly write the number of vertical levels in the 
+  gds area, where the vertical coordinate parameters are written.
+
+- in some routines: Corrections due to date zone crossing
+
+- data_int2lm_control.f90:
+  Eliminated variable lanafg (this has been replaced earlier by yinput_type).
+
+- src_namelists.f90:
+  Editorial adaptations for some variables in the control output:
+
+
+Summary of new and modified Namelist Switches:
+----------------------------------------------
+
+ - Group /CONTRL/ in SR input_control:
+
+     NEW:  lstomata                            Default:               .FALSE.
+           lemiss                                                     .FALSE.
+           l_smi                                                      .FALSE.
+           lmixcld                                                    .FALSE.
+
+           itype_aerosol                                                 1
+           nhori                                                        24
+
+     More Options for:
+           itype_ndvi                          additional options        2
+           itype_w_so_rel                      additional options        3, 4
+
+
+ - Group /LMGRID/ in SR input_lmgrid:
+
+     NEW:  irefatm                             Default:                  1
+           delta_t                                                      75.0
+           h_scal                                                    10000.0
+
+
+ - Group /DATA/ in SR input_data:    
+
+     NEW:  l_ke_in_gds                         Default:               .FALSE.
+
+
+     (Explanations see above)
+
+
+Changes of Results:
+-------------------
+
+lgme2lm:  The results of this application are not changed at all:
+
+llm2lm:   The results of this application are changed by the following 
+          modificiations:
+           - recalculation of hydrostatic balanced pressure deviation
+           - bug fixes in the vertical interpolation in src_vert_inter_lm
+           - bug fix in treatment of cloud ice and cloud water in the
+             horizontal interpolation
+
+Ulrich Schaettler
+
+-------------------------------------------------------------------------------
+
+1.8:                                               (26.05.2008)
+====
+
+This is a technical update to incorporate adaptations and bug fixes mainly
+in the climate mode. Also, several optimizations for vector processors have
+been incorporated. Some of these optimizations are also speeding up the
+program on scalar processors. In addition, some new features have been added.
+
+Work on Vectorization
+---------------------
+
+- src_vert_interpol.f90:
+  => SR adapt_pressure_1, adapt_pressure_2: The IF-clause in the
+     computation of the virtual temperature prevented the vectorization of 
+     this loop. Therefore, the computation of the different statement-functions 
+     for GME and IFS has been modified.
+  => SR adapt_pressure_2: In the Newton iterations, the IF (kcontrol_fi /= 1)
+     prevented vectorization. The control geopotential is now computed before
+     in a new variable.
+  => SR vert_interpol: 
+     The k-loop within the i-j-loops was moved outside
+     The Spline interpolation has been modified, in order not to begin always 
+     from the very start
+
+- src_lm_fields.f90, src_vert_inter_lm.f90:
+  Changes in the vertical interpolation analogous to src_vert_interpol.f90
+
+- gme_utilities.f90, src_gme_interpol.f90:
+  The (many) IF-clauses for the Match-Interpolation prevented the vectorization
+  of the routine pp_interp2ls. We introduced an initialization-routine for this
+  interpolation, where weighting variables are computed only once.
+  According to this change, SR pp_interp2ls has been re-written.
+
+- utilities.f90:
+  SR horizontal_filtering: changed the i-loop and the loop over the filter
+  weights, to vectorize over the i-loop.
+
+
+New Features:
+-------------
+
+- Interpolation of qr and qs from GME grid to COSMO grid
+
+- Read new external parameters for subgrid scale orography (sso):
+  A new Namelist switch lsso has been introduced, to control the processing
+  of these external fields. Default: lsso=.FALSE.
+
+- Read new external parameters for topographical corrections in the 
+  radiation scheme.
+  A new Namelist switch lradtopo (as in COSMO-Model) has been introduced, 
+  to control the processing of these external fields. 
+  Default: lradtopo=.FALSE.
+
+
+Technical Adaptations:
+----------------------
+
+- The name and meaning of the namelist variable lyear_360 has been changed 
+  to an integer value: itype_calendar, to allow several types of calendars:
+    0: proleptic-gregorian calendar (default)
+    1: a year with 360 days every year
+
+- All variable names "gz0" have been renamed to "z0" and the (Grib) factor
+  and bias have been removed: INT2LM only works with the z0-values, so there
+  is no need for extra scaling.
+
+- The namelist switch "ldebug" has been (definitely) eliminated, so it has to
+  be removed from all Namelist input and runscripts!
+
+- The subroutine "xd" (in module gme_utilities.f90), which does the diamond
+  boundary update for global GME fields has been adapted to avoid problems
+  at the diamond boundaries, when working with bitmap files.
+
+
+Adaptations for the Climate Mode:
+---------------------------------
+
+- Included alternative calls to bicubic spline interpolation
+
+- Treatment of itype_rootdp:
+  For the options =1/2, a bug was fixed. A new field to save the external
+  field has been introduced.
+  Another option =3 has been added.
+
+- Treatment of itype_w_so_rel:
+  The default of itype_w_so_rel has been set to 1
+
+- Treatment of (NetCDF) undefined values for output:
+  Some adaptations were necessary, if NetCDF files with undefined values
+  are read, but GRIB output is done.
+
+- Computation of control level for geopotential:
+  Some climate models do not provide the geopotential on higher levels,
+  therefore an option was added to compute this control level geopotential
+  from the other input parameters.
+
+- Interpolation from coarse grid models with lower upper boundary in the
+  atmosphere:
+  If input is taken from models, that have an upper boundary, which is lower
+  than the desired upper boundary in the COSMO-Model, the vertical profile
+  of every grid point of the coarse grid model is extended to the COSMO
+  upper boundary.
+
+
+Bug Corrections and other Technical Adaptations:
+------------------------------------------------
+
+- Namelist parameter lcm2lm was not distributed to other nodes
+- call to subroutines org_read_coarse_grid and org_coarse_interpol also for lcm2lm
+- field w_cl_lm was deallocated two times, which caused troubles on some compilers
+- interpolation of SST is not required (any more)
+- do not deallocate fis_in, if fic_in could not be read
+
+
+Changes of Namelist Input
+-------------------------
+
+
+-------------------------------------------------------------------------------
+
+1.7:                                               (23.11.2007)
+====
+
+This new version contains already some bugfixes for the climate mode
+and introduces some new options. For the operational setups, only
+lm2lm is affected by an additional splitting of the relative humidity.
+
+These are the changes by subject:
+
+ - Additional humidity splitting after balancing/filtering pp
+   In Module src_vert_inter_lm.f90, an additional splitting of the relative
+   humidity has been introduced (suggestion by Lucio Torrisi) after
+   balancing and filtering the pressure deviation. If this is not done,
+   the actual pressure and the moisture variables qv, qc are not consistent.
+   In the following this can lead to negative values of qv_s.
+
+   But the problem with negative qv_s was also reported even if the 
+   additional splitting was used, but less severe. Therefore, a clipping
+   of qv_s_lm has been introduced in the module src_2d_fields, after 
+   computing qv_s_lm.
+
+   This changes the results for the moisture variables qv and qc in case of lm2lm.
+   And now, no more negative values can occur for qv_s.
+
+ - Treatment of (multi-layer) soil variables for the COSMO-Model
+    => itype_t_cl: 
+       new Namelist Switch to choose, which deep soil (climatological)
+       temperature shall be chosen:
+          = 0: take t_cl from coarse grid model. This is the default
+          = 1: take t_cl from the external parameters for the COSMO-Model
+               (if it is not available in this data set, itype_t_cl=1 must
+                not be chosen)
+                
+    => itype_w_so_rel (former: iw_so_rel_type)
+       With this namelist switch the type of relative soil moisture input
+       can be chosen:
+          = 0: artificial profile relative to pore volume
+          = 1: relative to pore volume (read from coarse grid data)
+          = 2: relative to field capacity (read from coarse grid data)
+
+       If itype_w_so_rel = 0, an artificial profile for the soil moisture
+       is set, no matter which input model is used.
+       itype_w_so_rel = 1/2 only works for lcm2lm = .TRUE.
+
+    NOTE: in Version 1.5 itype_w_so_rel has been introduced as iw_so_rel_type
+          We changed the name in order to be consistent with other names of
+          that type in INT2LM and in the COSMO-Model
+
+    REMARK: The usage of itype_w_so_rel, lmulti_layer_in and lmulti_layer_lm
+            together with choosing the appropriate input model should be made
+            more consistent!
+
+
+
+ - Treatment of variables for plant characteristics
+
+    => The computation of the slowly varying fields has been moved from
+       the subroutine external_data.f90 to the module src_2d_fields.f90
+       (new subroutine plant_characteristics in this module).
+       In climate mode, these fields have to be computed also for 
+       producing boundary conditions.
+
+    => itype_rootdp
+       New Namelist switch to choose treatment of external parameter for 
+       root depth:
+       = 0: input from external parameter for the COSMO-Model is taken
+            and modified with an annual cycle. This is the default.
+       = 1: input from external parameter for the COSMO-Model is taken
+            without any modification (but using min- and max-values)
+       = 2: input from external parameter for the COSMO-Model is taken
+            and modified with an annual cycle. In addition, the values
+            are adapted to ECOCLIMAP niveau.
+
+    => itype_ndvi
+       New Namelist switch to choose treatment of plant cover and 
+       leaf area index:
+       = 0: plant cover and leaf area index for the COSMO-Model and 
+            for a special day are produced by using the data sets for
+            vegetation and for rest and modify these with an annual cycle.
+            This is the default.
+       = 1: plant cover and leaf area index for the COSMO-Model and
+            for a special day are produced by using only the data set
+            for vegetation and an averaged ndvi ratio.
+            This ndvi ratio is computed as a weighted mean between
+            monthly mean values, which are taken from the GME.
+            This is only possible, when using GME data.
+
+    => Change in the option to interpolate plant characteristics for
+       the COSMO-Model from the coarse grid model:
+       The possibility to use different data sets for periods of 
+       vegetation and of rest from the coarse grid model has been
+       introduced.
+
+ - Ensemble Mode
+   The ensemble mode has been introduced into INT2LM to provide (different) 
+   boundary conditions for the ensemble members of the COSMO-Model. 
+   The ensemble member ID, the ensemble type and the total number of ensemble
+   members are set and written to the corresponding grib headers.
+  
+   The ensemble mode is controlled by a new Namelist switch leps_bc in 
+   the group /CONTRL/. Default is .FALSE.
+   If leps_bc = .TRUE., a new Namelist group /EPSCTL/ is read which contains
+   the following namelist parameters:
+                                                              Default:
+    iepsmem_bc:  ID of the member in the ensemble of             -1
+                 boundary conditions (iepsmem_bc >= 0)
+    iepstyp_bc:  ID of the boundary ensemble generation          -1
+                 type (iepstyp_bc >= 0)
+    iepstot_bc:  total number of boundary ensemble members        0
+                 (iepstot_bc >= 0)
+    lchk_bc_typ: if .TRUE., check member ID of input data      .FALSE.
+                 (if leps_bc=.TRUE.)
+
+
+   There is a new data module:   
+       data_epsctl.f90
+
+   and the following modules have been modified:
+       data_int2lm_control.f90:     introduced new Namelist switch leps_bc
+       src_lm_output.f90
+       src_namelists.f90
+       src_read_coarse_grid.f90
+
+
+
+ - Bug fixes and additional debug output
+   => src_gme_interpol.f90:
+      Added several debug print outs
+
+   => src_lm_output.f90:
+      Bug correction in write_nc_vdefs: the value of kedim has to be used
+      as third dimension.
+      Introduced undefsub to pass to routine check_record.
+
+   => src_namelists.f90:
+      Corrected setting of nstart, nstop and nincbound, which were not set,
+      if the defaults for hstart, hstop and hincbound were not changed.
+
+   => src_read_ext.f90:
+      Bug correction for orography filtering in sequential programs
+
+   => src_vert_interpol.f90:
+       Added several debug print outs
+
+   => external_data.f90:
+      Bug correction for orography filtering in sequential programs
+
+   => utilities.f90:
+      Adapted a debug print out in SR tautsp2D
+
+
+
+ - Changes for external modules / packages used in INT2LM and COSMO-Model
+
+   => mpe_io.f90
+      There was a problem with writing the proper structure of GRIB records
+      on little endian machines (most Linux machines). If the number of bytes
+      for a GRIB record did not fit into a full integer word, the last bytes
+      were lost, leading to a corrupt GRIB end section: only 77 instead of 7777
+
+      This is due to the different byte ordering by little endian (counting from
+      right to left, instead from left to right). Within mpe_io.f90, the bytes
+      are organized in an integer array, but send with the MPI_BYTE data type.
+
+      The last integer word therefore has the contents:  x   x   7   7
+      (x being any content, 7 the important information)
+
+      But the Message Passing Interface is not aware of the big endian / 
+      little endian issue and only takes the "x x" and omits the 7  7.
+      This problem can be easily by-passed by just sending additional bytes, 
+      in order to transfer the whole last integer word of the GRIB record.
+
+      A modified version of mpe_io.f90 is included in this new INT2LM version.
+
+   => dummy_netcdf.f90
+      This dummy module has been enhanced with a new generic formulation for
+      the routine nf90_get_var (nf_90_get_var_eightbytereal).
+      
+
+Summary of Namelist changes:
+============================
+
+
+ - input_control:       
+
+     Renaming of a namelist switch:  iw_so_rel_type is now:   itype_w_so_rel
+
+     NEW:  itype_rootdp                        Default:                  0
+           itype_t_cl                                                    0
+           itype_ndvi                                                    0
+           leps_bc                                                    .FALSE.
+
+     (Explanations see above)
+
+
+ NEW group: /EPSCTL/
+
+ - input_epsctl:          
+
+           iepsmem_bc:  ID of the member in the ensemble of             -1
+                        boundary conditions (iepsmem_bc >= 0)
+           iepstyp_bc:  ID of the boundary ensemble generation          -1
+                        type (iepstyp_bc >= 0)
+           iepstot_bc:  total number of boundary ensemble members        0
+                        (iepstot_bc >= 0)
+           lchk_bc_typ: if .TRUE., check member ID of input data      .FALSE.
+                        (if leps_bc=.TRUE.)
+
+
+      
+Summary of Result changes:
+==========================
+
+Only for lm2lm=.TRUE.:
+  - The values of qv and qc are changed, if lbalance_pp=.TRUE. or 
+    lfilter_pp=.TRUE.
+  - If negative values of qv_s occured before, these are now clipped to 0.
+
+-------------------------------------------------------------------------------
+
+1.6:                                               (06.09.2007)
+====
+
+This is the second major step in upgrading the INT2LM. The following subjects
+have been implemented:
+
+- Bug fixes:
+   => interp_utilities.f90: the internal logical switch for the Cressman
+      scheme was wrongly initialized, so that the Cressman scheme was always
+      run
+   => src_memory.f90: Dimensions of the new variables cgas_in, caero_in 
+                      were wrong
+
+- I/O:
+   => NetCDF I/O has been introduced. This can be controlled by the new
+      Namelist Switches (in group /DATA/):
+
+      - yinext_form_read:  Input for the external parameters of the coarse grid
+      - ylmext_form_read:  Input for the external parameters of the LM grid
+      - yin_form_read:     Input of the coarse grid data
+      - ylm_form_write:    Output for the LM variables
+
+      For all 4 variables, the values can be either 'grb1' (default) or 'ncdf'
+
+   => Some more generic routines for distribute_values are now needed in
+      the module parallel_utilities.f90
+
+   => Processing of (initialized) analysis data can now be done in one run
+      of the INT2LM. The new Namelist parameters to control this, are
+      (in group /DATA/):
+
+      - yinput_type:   Type of input data: 'forecast', 'analysis' or 'ana_init'
+      - ytunit_in:     Time unit for input data ('f','d','t','c')
+      - ytunit_out:    Time unit for output data
+
+      The following 2 Namelist variables have been eliminated:
+
+      - ytunitbd       now splitted to ytunit_in, ytunit_out
+      - lanalysis      (from group /CONTRL/)
+
+   => The file YUCHKDAT is open and closed in every step
+
+
+- Climate Runs:
+   => The option lcm2lm has been implemented: read and interpolate data
+      from a (common) climate model
+   => External (optional) parameters can be read for lakes, climatological
+      deep soil temperature
+   => There are options for a Cressman scheme and a bicubic spline 
+      interpolation scheme
+
+- Control:
+   => The following namelist switches have been eliminated in group /CONTRL/:
+      - nstart, nstop, nincbound, dt
+
+      Only values hstart, hstop, hincbound are possible now (which must be 
+      multiples of 0.25)
+      
+
+
+Summary of changes in the Namelists:
+
+ - input_control:       
+     DELETED:  lanalysis, nstart, nstop, nincbound
+
+ - input_data:          
+     DELETED:  ytunitbd
+
+     NEW (or put into use now)
+               yinput_type:        'forecast' (is default),
+                                   'analysis' or 'ana_init'
+	       ytunit_in:          'f' (is default),'d','t','c'
+	       ytunit_out:         'f' (is default),'d','t','c'
+
+               yinext_form_read:   'grb1'  (is default),  'ncdf'
+               ylmext_form_read:   'grb1'  (is default),  'ncdf'
+               yin_form_read:      'grb1'  (is default),  'ncdf'
+               ylm_form_write:     'grb1'  (is default),  'ncdf'
+
+-------------------------------------------------------------------------------
+
+1.5:                                               (30.06.2007)
+====
+
+This version is a major upgrade, which contains the following:
+
+ - Developments for Runge-Kutta high-resolution runs
+    => Treatment of qr, qs, qg: For llm2lm, the treatment of these fields
+       as boundary values has been introduced. It can be controlled by the
+       new Namelist variables:
+         - lprog_qrqs:   interpolate qr, qs to the fine grid     (.FALSE.)
+         - lprog_qg:     interpolate qg to the fine grid         (.FALSE.)
+
+    => Additional smoothing of the orography:
+       Becauwe of the roughness of the alps, the high-resolution model
+       had some problems. Therefore an additional smoothing of the
+       orography is done. This can be controlled by the new Namelist
+       parameters:
+         - lxso_first:     do an extra smoothing of orography first    (.FALSE.)
+                           (before the low_pass filter)
+         - ilow_pass_oro:  type of low-pass filter for orography           ( 1 )
+         - numfilt_oro:    number of sequential applications of filter     ( 1 )
+         - ilow_pass_xso:  type of low-pass filter for extra smoothing
+                           of steep orography                              ( 0 )
+         - numfilt_xso:    number of sequential applications of xso-filter ( 1 )
+         - ifill_valley:   type of valley filling:                         ( 0 )
+                            0:  no filling;
+                            1:  MIN (before smoothing orography),
+                            2:  MIN (after smoothing orography)
+         - rfill_valley:   mask for valley filling: dh > rfill_valley      ( 0 )
+
+
+ - Changes for the SLEVE coordinate
+
+ - Introduction of a smooth transition of orography at the
+   lateral boundaries. This can be controlled by the new
+   Namelist variables:
+     - llbc_smooth:  if .TRUE., run with smooth orography transition
+                     at the lateral boundaries                        (.FALSE.)
+     - nlbc_smooth:  number of grid points for smooth orography
+                     transition at the lateral boundaries             (  20   )
+
+ - Bug correction for running lm2lm with domains on the
+   southern hemisphere
+
+ - (First) adaptions to use INT2LM also in climate mode
+   This will be explained in more detail when the full implementation is ready
+
+ - Modifications for skipping nlevskip levels at top of variables
+   in ECMWF input files. This is controlled by the new Namelist variable
+     - nlevskip: number of levels to skip at top of input model        (  0  )
+
+ - Modification for improving snow interpolation from ECMWF
+
+ - Modifications for accepting ECMWF orography on model levels
+
+ - Introduced controlling of verbosity of output, similar to the COSMO Model
+    - idbg_level:     to control the verbosity of debug output         (  2  )
+    - lprintdeb_all:  .TRUE.:  all tasks print debug output            (.FALSE.)
+                     .FALSE.: only task 0 prints debug output
+
+ - For lm2lm the possibility of interpolating additional chemistry fields has
+   been introduced. This is controlled with the new Namelist variable
+     - l_chemistry: interpolate additional chemistry fields            (.FALSE.)
+
+   If l_chemistry is set to TRUE, additional fields from Grib Tables 241 and 242
+   are read, interpolated and  written to the output file.
+
+ - Several bug corrections
+
+
+Summary of changes in the Namelists:
+
+ - input_control:
+   NEW:  lprog_qrqs
+         lprog_qg
+         lxso_first
+         ilow_pass_oro
+         numfilt_oro
+         ilow_pass_xso
+         numfilt_xso
+         rxso_mask
+         rfill_valley
+         ifill_valley
+         llbc_smooth
+         nlbc_smooth
+         lcm2lm
+         llake
+         iw_so_rel_type
+         lyear_360
+         lbdclim
+         l_cressman
+         l_bicub_spl
+         l_chemistry
+         idbg_level
+         lprintdeb_all
+
+   DELETE: ke_soil       (now there are ke_soil_in, ke_soil_lm in the special grids)
+           czml_soil     (now there are czml_soil_in, czml_soil_lm in the special grids)
+           ldebug
+
+ - input_grid_in:
+   NEW:  ke_soil_in
+         czml_soil_in
+         polgam_in
+         endlat_tot_in
+         endlon_tot_in
+         lushift_in
+         lvshift_in
+         east_add_in
+         west_add_in
+         north_add_in
+         south_add_in
+         nlevskip
+
+   DELETE: ----
+
+ - input_lmgrid:
+   NEW:  ke_soil_lm
+         czml_soil_lm
+         cw_so_rel_lm
+         polgam
+
+   DELETE: ----
+
+ - input_data:
+   NEW:  ytunitbd
+         ylmext_form_read
+         yinext_form_read
+         yin_form_read
+         ylm_form_write
+         ldwd_grib_use
+
+   DELETE: ----
+
+-------------------------------------------------------------------------------
+
+1.4:                                               (12.07.2005)
+====
+
+This is just a correction update.
+The dimension of the field rho_snow_in (in src_memory) was wrong.
+
+(Ulrich Schaettler, DWD)
+
+All modified files of the library <int2lm> version 1.4:
+
+===== src_memory.f90, modified by: Ulrich Schaettler =====
+Bug correction in the dimension of rho_snow_in
+
+-------------------------------------------------------------------------------
+
+1.3:                                               (12.12.2005)
+====
+
+This version introduces the possibility to interpolate the snow density
+from a coarse model (GME or LM) to the fine LM grid. It is interpolated
+taking into account the land-sea-mask.
+
+(Ulrich Schaettler, DWD)
+
+All modified files of the library <int2lm> version 1.3:
+
+===== data_fields_in.f90, modified by: Ulrich Schaettler =====
+Added field rho_snow for prognostic treatment of snow density in the LM
+===== data_fields_lm.f90, modified by: Ulrich Schaettler =====
+Added field rho_snow for prognostic treatment of snow density in the LM
+===== data_int2lm_control.f90, modified by: Ulrich Schaettler =====
+New Namelist parameter lprog_rho_snow for prognostic treatment of rho_snow
+===== src_coarse_interpol.f90, modified by: Ulrich Schaettler =====
+Added fields for treatment of rho_snow
+===== src_gme_interpol.f90, modified by: Ulrich Schaettler =====
+Added interpolation of rho_snow for prognostic treatment in the LM
+===== src_gribtabs.f90, modified by: Ulrich Schaettler =====
+Added field rho_snow for prognostic treatment of snow density in the LM
+===== src_memory.f90, modified by: Ulrich Schaettler =====
+Added fields for prognostic treatment of snow density in the LM
+===== src_namelists.f90, modified by: Ulrich Schaettler =====
+New Namelist parameter lprog_rho_snow for prognostic treatment of 
+snow density
+===== src_read_ext.f90, modified by: Ulrich Schaettler =====
+Bug fix: check the table type for reading external parameters
+
+-------------------------------------------------------------------------------
+
+1.2:                                               (12.07.2005)
+====
+
+This version introduces the possibility to read external parameters for
+the LM indicating the ground fraction used by evergreen (for_e) or deciduous 
+forest (for_d). These parameters are passed on to the LM, where they are
+used for computing the effect of snow covered forests on the solar snow
+albedo. According external parameters have been produced by DWD for the
+LME domain (file: lm_d5_07000_965x773.g1; rotated pole with pollat=40.0;
+pollon=-170.0).
+
+In addition, several bugs and weaknesses have been removed:
+ 
+ - For computing the cosine of the latitude for v-gridpoints, the 
+   factor "degrad" was missing (in SR uv_correction in src_vert_interpol.f90)
+
+ - When the snow variables are checked for consistency (in SR ground_fields
+   in src_2d_fields.f90), the soil temperature t_s was used erroneously, 
+   instead of the snow temperature t_snow.
+
+   The fixing of these 2 bugs leads to slightly different results!
+
+ - It is checked that the variables pcontrof_fi (for IFS2LM) and kcontrol_fi
+   (for GME2LM) are not both set, which led to wrong results.
+
+ - Bug correction for the dimensions of the local variable zdt_so in 
+   subroutine interpol_coarse_special_lm in src_coarse_interpol.f90.
+
+ - T_CL is now interpolated only for initial data.
+
+(Ulrich Schaettler, DWD)
+
+All modified files of the library <int2lm> version 1.2:
+
+===== data_fields_lm.f90, modified by: Ulrich Schaettler =====
+Introduced new fields for evergreen and deciduous forest (for_e, for_d)
+===== data_int2lm_control.f90, modified by: Ulrich Schaettler =====
+New Namelist parameter lforest for use of external fields for_e, for_d
+===== external_data.f90, modified by: Ulrich Schaettler =====
+Added fields for_e, for_d for reading from external parameters
+===== io_utilities.f90, modified by: Ulrich Schaettler =====
+Eliminated time check for T_CL and W_CL in case of LM2LM
+===== meteo_utilities.f90, modified by: Jochen Foerstner, Ulrich Schaettler =====
+Included new SR for computing calrho_densities
+Modification in SR satad, to "save" the start values for the temperature
+===== src_2d_fields.f90, modified by: Ulrich Schaettler =====
+Use t_snow_lm instead of t_s_lm for consistency check of snow
+===== src_coarse_interpol.f90, modified by: Ulrich Schaettler =====
+Corrected dimensions of field zdt_so in SR interpol_coarse_special_lm
+Interpolate T_SO(0) also for computing boundary values
+===== src_gme_interpol.f90, modified by: Ulrich Schaettler =====
+Interpolation of T_CL only for initial data
+===== src_gribtabs.f90, modified by: Ulrich Schaettler =====
+Added fields for_e and for_d to the LM table;
+Read T_SO instead of T_S, if lmulti_layer_in=.TRUE.
+===== src_memory.f90, modified by: Ulrich Schaettler =====
+Added fields for_e, for_d
+===== src_namelists.f90, modified by: Ulrich Schaettler =====
+New Namelist parameter lforest for use of external fields for_e, for_d
+Adapt list of output fields accordingly
+Check that kcontrol_fi (only for GME) and pcontrol_fi (only for IFS) are
+not both set.
+===== src_read_coarse_grid.f90, modified by: Ulrich Schaettler =====
+T_SO(0) has also to be read for computing boundary values
+===== src_read_ext.f90, modified by: Ulrich Schaettler =====
+Added fields for_e, for_d for reading from external parameters
+===== src_vert_interpol.f90, modified by: Ulrich Schaettler =====
+Bug correction for computing the COS(lat) of v-grid points
+
+-------------------------------------------------------------------------------
+
+1.1:                                               (12.04.2005)
+====
+
+The INT2LM is a further development of the GME2LM. It takes input
+data from the GME triangular grid, the global spectral model IFS
+from ECMWF (on a lat-lon grid) or from the LM grid itself and
+interpolates these to a specified new LM grid. It computes initial
+and / or boundary data.
+
+INT2LM is a joint development within COSMO. Participating institutes
+are DWD (GME2LM, LM2LM, Parallelization, Software Engineering), 
+ARPA-SIM from Bologna, Italy (IFS2LM) and MeteoSwiss (LM2LM).
+
+
+(Ulrich Schaettler, DWD)
+
+-------------------------------------------------------------------------------

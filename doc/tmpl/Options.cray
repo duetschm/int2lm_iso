@@ -1,0 +1,89 @@
+# compiler
+F90      = ftn -D__CRAY_FORTRAN__
+
+# linker
+LD       = $(F90)
+
+# global compilation flags
+FFLAGS   = -ffree # free-form source format
+FFLAGS   = -N255 # free-form source format
+FFLAGS  += -ec # interface checking
+FFLAGS  += -eC # standard call site checking
+FFLAGS  += -eI # treat all variables as if an implicit none is there
+#FFLAGS  += -hkeepfiles # keep .s files
+FFLAGS  += -hnosecond_underscore # symbol names only have one underscore
+FFLAGS  += -Ofp0 # require strong IEEE standard conformance
+
+# verbose compilation flags
+VFLAGS   = -v # show compilation information
+VFLAGS  += -en # generate message for all nonstandard Fortran usage
+VFLGAS  += -eo # display all optimization options used
+#VFLAGS  += -eS # generate assembly language output
+VFLAGS  += -hmsgs # display optimization messages
+VFLAGS  += -hnegmsgs # display negative optimization messages
+VFLAGS  += -m1 # high message level (error, warning, caution and note)
+VFLAGS  += -T # display all options currently in effect
+
+# force preprocessing flags
+PFLAGS   = -eZ # perform preprocessing for all source files
+
+# optimization flags (FOPT0=none, FOPT1=strong, FOPT2=strongest)
+FOPT0    = -O0 # inhibit any optimizations
+
+FOPT1    = # aggressive global optimization
+
+FOPT2    = $(FOPT1)
+
+# debugging flags
+FDBG     = -O0 # no optimization
+FDBG    += -g # debugging support (== -G0)
+FDBG    += -eD # turn on all debugging information (-O0 -g -m2 -R abcsCE -rl)
+#FDBG    += -Ra # compare number+types of arguments for calls
+FDBG    += -Rb # array bound checking
+FDBG    += -Rc # check conformance of array operands
+FDBG    += -Rd # directives checking
+#FDBG    += -RC # subroutine argument checking
+#FDBG    += -RE # subroutine argument checking
+FDBG    += -Rp # check NULL pointer references
+FDBG    += -Rs # check string bounds
+
+# global linking flags
+LFLAGS   = 
+
+# global libraries and includes
+LIB      = 
+
+INC      = -I.
+INC     += -I$(ROOT)/$(SRCDIR)
+INC     += -I$(MPICH_DIR)/include
+
+# optimized flags, libraries and includes
+OPTL     = 
+OPTI     = 
+
+# debugging flags, libraries and includes
+DBGL     = 
+DBGI     = 
+
+# MPI library
+MPIL     = 
+MPII     = -D__MPICH2
+
+# Grib1 library
+GRIBDWDL = 
+GRIBDWDI = 
+
+# Grib-API library
+GRIBAPIL = 
+GRIBAPII = 
+
+# NetCDF library
+NETCDFL  = 
+NETCDFI  = 
+
+# Synsat library
+RTTOV7L   = 
+RTTOV7I   = 
+RTTOV10L  = 
+RTTOV10I  = 
+

@@ -1,0 +1,13 @@
+Compiler Templates
+==================
+
+This directory contains templates for compiling on other platforms or
+using other compilers. Note that these files are not maintained and
+not tested. They serve solely to get you up to speed more quickly than
+if you would have had to start from scratch. Please test!
+
+Note: If you want to use any of these templates on the Cray systems at
+ CSCS, you should edit the compiler name to be "ftn" and load the
+ corresponding modules.
+
+fuo, 16.12.2013

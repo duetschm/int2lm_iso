@@ -1,0 +1,123 @@
+2.0.4:                                         roa      1.04.2014
+=======
+-  Add compilation options for PGI on Daint
+
+2.0.3:                                         gdm/roa  3.03.2014
+=======
+
+-  Bugfix for lcm2lm when vcoord_in%ivctype is not defined
+   and need to compute the index of the 850 hPa level.
+   Tag: gdm klv850_in                        Source: src_read_coarse_grid.f90
+   Results: no changes
+
+-  Removal of the unnecessary horizon related code
+   Tag: -                                    Source: src_read_coarse_grid.f90
+   Results: no changes
+
+-  Cosmetics
+   Tag: -                                    Source: data_fields_lm.f90
+                                                     src_read_coarse_grid.f90
+                                                     external_data.f90
+                                                     src_read_ext.f90
+   Results: no changes
+
+-  Bug fix. vcoord_in instead of vcoord otherwise stops at the
+   call to interp_l 
+   Tag: -                                    Source: external_data.f90
+   Results: no changes
+
+-  Added xso (eXtra Smoothing of steep Orography) for the Raymond filter
+   (ilow_pass_oro=1) and allowed 3rd order filtering of orography.
+   Added loop for iterative use of Raymond filter. Change the 
+   zhmax_sea from 10 to 1 in order to avoid having too many grid points
+   in the sea after filtering.
+   Tag: -                                    Source: src_namelists.f90
+   Results: changes if ilow_pass_oro=1               src_read_ext.f90
+
+-  Changed soil moisture in ICE vicinity with closest soil moisture available
+   Tag: none                                 Source: src_coarse_interpol.f90
+   Results: change the results in case 
+            some ice points are present
+
+
+2.0.2:                                            roa  24.02.2014
+=======
+
+-  Correction in bugfix to check whether vertical coordinate parameters 
+   in gds are stored as coded reals or directly in form of integers.
+   Tag: no tag                 Source: io_utilities.f90
+   Results: no changes
+
+
+2.0.1:                                            mog  08.01.2014
+=======
+
+Modifications implemented in this new local version
+
+-  Necessary modifications for SLEVE2 vertical coordinate in the input
+   Tag: no tag                 Source: data_fields_lm.f90
+                                       data_grid_in.f90
+                                       external_data.f90
+                                       src_cleanup.f90
+                                       src_lm_output.f90
+                                       src_memory.f90
+                                       src_namelists.f90
+                                       src_read_coarse_grid.f90
+                                       src_read_ext.f90
+                                       src_vert_inter_lm.f90
+                                       src_vert_interpol.f90
+                                       vgrid_refatm_utils.f90
+   Results: changes with SLEVE2 in input
+
+
+-  Bugfix in check whether vertical coordinate parameters in gds are stored
+   as coded reals or directly in form of integers.
+   Tag: no tag                 Source: io_utilities.f90
+   Results: no changes
+
+
+-  Bugfix in idims_id of nhori
+   Tag: gdm                    Source: src_read_ext.f90
+   Results: no changes
+
+
+-  Ready files 
+   Tag: ele and fuo_lockfile   Source: io_utilities.f90
+                                       mpe_io.f90
+                                       src_read_coarse_grid.f90
+   Results: no changes
+
+
+-  __MPICH2 (CRAY):  BUFF_length = 5000000 instead of 500000
+   Tag: no tag                 Source: mpe_io.f90
+   Results: no changes
+
+
+-  Consistent unit naming ( [-] to [1] )
+   Tag: no tag                 Source: external_data.f90
+   Results: no changes
+
+
+-  Add more information to stdout
+   Tag: no tag                 Source: int2lm_org.f90
+   Results: no changes
+
+
+-  Remove white spaces in variable names and TRIM them
+   Tag: no tag                 Source: src_read_ext.f90
+   Results: no changes
+
+
+-  Adapt compilation environment to CSCS machines:
+    * makes use of the grib_api version 1.11.0
+    * /bin directory
+    * README on how to compile
+
+
+-  Add dummy files
+   Tag: no tag                 Source: dummy_mpi.f90
+                                       dummy_db.f90
+                                       mpe_io.f90
+   Results: no changes
+
+
